@@ -47,23 +47,29 @@ def main():
         print("Failed to find path.")
 
 def plot_car(x, y, yaw, config):
-    # 简单的车辆轮廓变换和绘制
-    car_outline = np.array([
-        [-config.LB, (config.L + config.LF), (config.L + config.LF), -config.LB, -config.LB],
-        [config.W / 2, config.W / 2, -config.W / 2, -config.W / 2, config.W / 2]
-    ])
+    # 1. 直接使用 config 中定义的车辆轮廓 (原点在后轴中心)
+    # 形状为 (2, 5) -> [[x1, x2...], [y1, y2...]]
+    car_outline = np.copy(config.vehicle_outline)
     
-    # 旋转矩阵
+    # 2. 旋转矩阵
+    # 这里的写法是为了配合下面的转置点乘：Points(Nx2) dot Rot(2x2)
+    # 实际上等于标准旋转矩阵的转置
     rot_mat = np.array([
         [math.cos(yaw), math.sin(yaw)],
         [-math.sin(yaw), math.cos(yaw)]
     ])
     
-    # 旋转并平移
+    # 3. 旋转
+    # car_outline.T 变成 (5, 2)
+    # (5, 2) dot (2, 2) -> (5, 2)
+    # 再转置回 (2, 5) 以便切片绘图
     car_outline = (car_outline.T.dot(rot_mat)).T
+    
+    # 4. 平移
     car_outline[0, :] += x
     car_outline[1, :] += y
     
+    # 5. 绘图
     plt.plot(car_outline[0, :], car_outline[1, :], "-k")
 
 
