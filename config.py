@@ -25,7 +25,7 @@ class Config:
 
         # 车辆移动步长 (每次扩展的距离，以分辨率为单位)
         # 如果设为 2.0，代表每次走 2个格子
-        self.move_step_size = 2.0
+        self.move_step_size = 1.6
         
         # 角度离散化分辨率 (用于Hybrid A*的三维搜索)
         self.YAW_RES = math.radians(15.0)  # [rad]

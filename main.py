@@ -12,11 +12,11 @@ def main():
     config = Config()
     
     # 2. 初始化地图
-    # 50x50米，60个障碍物
     grid_map = GridMap(config)
-    sx, sy, syaw = 10.0, 10.0, math.radians(0.0)
+    sx, sy, syaw = 25.0, 25.0, math.radians(0.0)
     gx, gy, gyaw = 40.0, 40.0, math.radians(90.0)
     
+    # 50x50米，60个障碍物
     grid_map.generate_map(50, 50, 60, start_m=[sx, sy], goal_m=[gx, gy])
 
     # 3. 运行规划
