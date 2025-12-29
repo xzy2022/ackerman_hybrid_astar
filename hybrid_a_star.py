@@ -130,7 +130,7 @@ def check_collision(node, grid_map_obj, config):
 def calc_next_states(current_node, config):
     """生成子节点，并计算 G-Cost"""
     next_nodes = []
-    step_length = config.XY_RES * 2.0
+    step_length = config.XY_RES * config.move_step_size
     
     # 增加转向采样的密度，提高搜索灵活性
     n_steer = 3 
