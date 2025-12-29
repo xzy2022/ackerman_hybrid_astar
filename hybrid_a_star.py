@@ -5,18 +5,19 @@ from config import Config
 
 class Node:
     def __init__(self, x_ind, y_ind, yaw_ind, direction, x_list, y_list,
-                 steer, pin_index, cost):
+                 steer, pin_index, cost, yaw):
         """
         Hybrid A* 的节点
-        :param x_ind: 栅格地图 X 索引
-        :param y_ind: 栅格地图 Y 索引
-        :param yaw_ind: 航向角索引
+        :param x_ind: 栅格地图 X 索引 (int)
+        :param y_ind: 栅格地图 Y 索引 (int)
+        :param yaw_ind: 航向角索引 (int)
         :param direction: 移动方向 (1: 前进, -1: 后退)
-        :param x_list: 轨迹上的 X 坐标列表 (用于碰撞检测和画图)
-        :param y_list: 轨迹上的 Y 坐标列表
-        :param steer: 到达该节点时的转向角
-        :param pin_index: 父节点索引 (用于回溯路径)
-        :param cost: 路径代价值 (g + h)
+        :param x_list: 轨迹上的 X 坐标列表 (float)
+        :param y_list: 轨迹上的 Y 坐标列表 (float)
+        :param steer: 到达该节点时的转向角 (float)
+        :param pin_index: 父节点索引 (int)
+        :param cost: 路径代价值 (g + h) (float)
+        :param yaw: 实际的物理航向角 (float)
         """
         self.x_index = x_ind
         self.y_index = y_ind
@@ -27,6 +28,7 @@ class Node:
         self.steering = steer
         self.parent_index = pin_index
         self.cost = cost
+        self.yaw = yaw  
 
 def normalize_angle(angle):
     """
@@ -75,22 +77,17 @@ def calc_next_states(current_node, config):
 
     for direction in directions:
         for steer in steer_inputs:
-            # 1. 预测新状态
-            # 我们需要保存中间轨迹点用于碰撞检测
-            x_list = [current_node.x_list[-1]]
-            y_list = [current_node.y_list[-1]]
-            yaw_list = [current_node.yaw_index] # 这里存的是角度值还是索引暂存疑，先存最后的物理角度更合适
+            # 1. 准备初始状态
+            # 使用列表推导式复制一份新的轨迹列表，避免修改原列表
+            x_list = list(current_node.x_list)
+            y_list = list(current_node.y_list)
 
-            # 获取当前物理状态 (取轨迹列表的最后一个点)
-            node_x = current_node.x_list[-1]
-            node_y = current_node.y_list[-1]
-            # 注意：Node类里通常只存了离散yaw_ind，我们需要还原回物理yaw
-            # 这里为了简单，假设Node在生成时会携带真实的yaw，或者我们从yaw_ind计算
-            # *为了简化Demo，建议在Node里直接存一个 self.yaw 物理值*
-            node_yaw = getattr(current_node, 'yaw', 0.0) 
+            # 获取当前物理状态 (取上一段轨迹的终点)
+            node_x = x_list[-1]
+            node_y = y_list[-1]
+            node_yaw = current_node.yaw  # 直接使用存储的精确物理角度
 
-            # 模拟积分 (将 step_length 切分成小段 sub_step)
-            # 这样画出来的线是圆弧，而不是直线
+            # 2. 模拟积分
             dist = direction * step_length
             num_sub_steps = 5
             d_sub = dist / num_sub_steps
@@ -104,15 +101,15 @@ def calc_next_states(current_node, config):
                 x_list.append(curr_x)
                 y_list.append(curr_y)
 
-            # 2. 计算栅格索引 (用于去重和A*记录)
+            # 3. 计算栅格索引 (用于 A* CloseSet 判重)
             x_ind = round(curr_x / config.XY_RES)
             y_ind = round(curr_y / config.XY_RES)
             yaw_ind = round(curr_yaw / config.YAW_RES)
 
-            # 3. 创建新节点 (Cost暂时设为0，后面统一算)
+            # 4. 创建新节点
+            # 注意：这里将计算出的精确 curr_yaw 传入新节点
             new_node = Node(x_ind, y_ind, yaw_ind, direction, x_list, y_list,
-                            steer, current_node.parent_index, 0.0)
-            new_node.yaw = curr_yaw # 补充物理角度属性
+                            steer, current_node.parent_index, 0.0, curr_yaw)
             
             next_nodes.append(new_node)
             
@@ -120,12 +117,12 @@ def calc_next_states(current_node, config):
 
 # --- 单元测试与可视化 ---
 if __name__ == "__main__":
-    print("Testing Motion Primitives...")
+    print("Testing Motion Primitives with updated Node class...")
     cfg = Config()
     
-    # 创建一个位于 (0,0), 朝向 0 的初始节点
-    start_node = Node(0, 0, 0, 1, [0], [0], 0, -1, 0)
-    start_node.yaw = 0.0 # 初始物理角度
+    # 初始化起点：物理角度设为 0.0
+    # 参数顺序: x_ind, y_ind, yaw_ind, dir, x_list, y_list, steer, parent, cost, yaw(float)
+    start_node = Node(0, 0, 0, 1, [0.0], [0.0], 0.0, -1, 0.0, 0.0)
     
     # 计算下一步所有可能的轨迹
     next_nodes = calc_next_states(start_node, cfg)
@@ -136,12 +133,15 @@ if __name__ == "__main__":
     for node in next_nodes:
         # 画轨迹
         plt.plot(node.x_list, node.y_list, "-g" if node.direction == 1 else "-r")
-        # 画终点箭头
+        
+        # 画终点箭头 (使用 node.yaw 绘制正确的朝向)
         plt.arrow(node.x_list[-1], node.y_list[-1], 
                   math.cos(node.yaw) * 0.5, math.sin(node.yaw) * 0.5,
-                  head_width=0.2, color='k')
+                  head_width=0.1, color='k')
                   
     plt.grid(True)
     plt.axis("equal")
-    plt.title(f"Motion Primitives (Green: Fwd, Red: Rev)\nGenerated {len(next_nodes)} branches")
+    plt.title(f"Motion Primitives\nGenerated {len(next_nodes)} branches")
+    plt.xlabel("X [m]")
+    plt.ylabel("Y [m]")
     plt.show()
