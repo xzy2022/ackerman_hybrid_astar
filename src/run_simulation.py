@@ -1,38 +1,16 @@
-import matplotlib.pyplot as plt
-import numpy as np
-import math
 import sys
 import os
+import math
+import matplotlib.pyplot as plt
 
-# 确保能导入 src 包 (如果脚本在根目录下，通常不需要这行，但为了稳健加上)
-sys.path.append(os.getcwd())
 
 from src.config import HybridAStarConfig, VehicleConfig
 from src.grid_map import GridMap
 from src.planner import HybridAStarPlanner
-
-def plot_vehicle(x, y, yaw, vehicle_config, color='black'):
-    """辅助函数：绘制车辆轮廓"""
-    outline = vehicle_config.vehicle_outline
-    rot_mat = np.array([
-        [math.cos(yaw), math.sin(yaw)],
-        [-math.sin(yaw), math.cos(yaw)]
-    ])
-    
-    # 旋转 + 平移
-    rotated_outline = (outline.T.dot(rot_mat)).T
-    rotated_outline[0, :] += x
-    rotated_outline[1, :] += y
-    
-    plt.plot(rotated_outline[0, :], rotated_outline[1, :], color=color, linewidth=1.5)
-    
-    # 画箭头指示方向
-    arrow_len = 1.0
-    plt.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw), 
-              head_width=0.3, head_length=0.4, fc=color, ec=color)
+from src.visualizer import Visualizer  
 
 def main():
-    print("=== Hybrid A* Research Simulation Start ===")
+    print("=== Hybrid A* Research Simulation ===")
     
     # 1. 初始化配置 (Configuration)
     # 你可以在这里修改参数进行对比实验 (Ablation Study)
@@ -41,7 +19,6 @@ def main():
     h_config.heuristic_weight = 5.0 # 调整启发式权重
     
     v_config = VehicleConfig()
-    # v_config.wheelbase = 2.8 # 修改车辆参数
     
     # 2. 初始化地图 (Environment)
     grid_map = GridMap(h_config, v_config)
@@ -67,50 +44,29 @@ def main():
     
     result = planner.plan(start, goal, grid_map)
     
-    # 5. 结果分析与可视化 (Analysis & Visualization)
     if result.success:
-        print(f"Path Found! Cost: {result.cost:.2f}")
-        print(f"Nodes Expanded: {result.debug_data.nodes_expanded}")
-        print(f"Time Elapsed: {result.debug_data.execution_time_ms:.2f} ms")
-        
-        # --- 绘图 ---
-        plt.figure(figsize=(10, 10))
-        
-        # A. 画静态地图
-        grid_map.plot_map()
-        
-        # B. [科研核心] 可视化搜索树 (Search Tree Visualization)
-        # 这就是我们增加 SearchDebugData 的目的
-        print("Plotting Search Tree (Nodes Expanded)...")
-        # 将扩展历史解包
-        explored_x = [p[0] for p in result.debug_data.expansion_history]
-        explored_y = [p[1] for p in result.debug_data.expansion_history]
-        # 用绿色小点表示搜索过的区域，透明度设低一点
-        plt.plot(explored_x, explored_y, ".g", markersize=2, alpha=0.3, label="Explored Nodes")
-        
-        # C. 画最终路径
-        plt.plot(result.path_x, result.path_y, "-r", linewidth=2.0, label="Final Path")
-        
-        # D. 画起点终点车辆
-        plot_vehicle(start[0], start[1], start[2], v_config, color='blue')
-        plot_vehicle(goal[0], goal[1], goal[2], v_config, color='red')
-        
-        plt.title(f"Hybrid A* Result (Cost: {result.cost:.2f})")
-        plt.legend()
-        plt.axis("equal")
-        plt.show()
-        
-        # (可选) 动画展示：如果你想看动态过程，可以遍历 path_x 并动态 plot_vehicle
+        print(f"Success! Cost: {result.cost:.2f}, Nodes: {result.debug_data.nodes_expanded}")
     else:
         print("Planning Failed.")
-        # 即使失败，也可以画出 explored nodes 看看是哪里堵死了
-        plt.figure(figsize=(10, 10))
-        grid_map.plot_map()
-        explored_x = [p[0] for p in result.debug_data.expansion_history]
-        explored_y = [p[1] for p in result.debug_data.expansion_history]
-        plt.plot(explored_x, explored_y, ".g", markersize=2, alpha=0.3)
-        plt.title("Planning Failed - Search Tree")
-        plt.show()
+
+    # 5. [Visualization] 结果展示 (GUI Phase)
+    # 只有需要看结果时才实例化 Visualizer
+    viz = Visualizer(v_config)
+    
+    # 图1: 规划结果总览
+    viz.visualize_planning_result(grid_map, start, goal, result, 
+                                  show_search_tree=True, 
+                                  title="Scenario 1: Random Obstacles")
+    
+    # 图2 (可选): 启发式热力图分析
+    # 为了画这个图，我们需要单独访问一下 heuristic 对象（或者让 planner 返回它）
+    # 这里演示重新实例化一个 heuristic 来画图
+    from src.heuristic import HolonomicHeuristic
+    heuristic_debug = HolonomicHeuristic(h_config, grid_map)
+    heuristic_debug.calculate(start, goal) # 触发一次计算以生成 map
+    viz.visualize_heuristic_heatmap(heuristic_debug, grid_map)
+    
+    plt.show()
 
 if __name__ == "__main__":
     main()

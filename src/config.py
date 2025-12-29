@@ -62,7 +62,7 @@ class HybridAStarConfig:
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
     heuristic_weight: float = 5.0      # 启发式代价(H值)的权重
-    penalty_reverse: float = 5.0       # 倒车惩罚
+    penalty_reverse: float = 50.0       # 倒车惩罚
     penalty_steer_change: float = 5.0  # 频繁打方向盘的惩罚
     penalty_gear_switch: float = 5.0   # 换挡(前进变后退)的惩罚
     
