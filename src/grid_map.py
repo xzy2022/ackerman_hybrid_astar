@@ -2,9 +2,7 @@ import math
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Tuple, List, Optional
-
-
+from typing import Tuple, Optional
 
 # 导入接口与配置
 from src.interfaces import BaseMap
@@ -14,10 +12,9 @@ class GridMap(BaseMap):
     """
     基于栅格的地图实现 (Grid Map Implementation).
     
-    继承自 BaseMap，实现了具体的碰撞检测逻辑。
-    内部维护一个 numpy 二维数组作为占用栅格：
-    - False (0): 自由区域
-    - True  (1): 障碍物
+    修正版 (SSOT): 统一了物理坐标与栅格索引的转换逻辑。
+    - 索引 (i, j) 对应的物理范围是 [i*res, (i+1)*res)
+    - 物理中心位于 (i+0.5)*res
     """
 
     def __init__(self, config: HybridAStarConfig, vehicle_config: VehicleConfig):
@@ -43,6 +40,35 @@ class GridMap(BaseMap):
         # 初始化为空，需要调用 generate_random_map 或 load_from_image 填充
         self.obstacle_map: Optional[np.ndarray] = None
 
+    # =========================================================
+    #  核心转换逻辑 (Single Source of Truth)
+    #  所有涉及坐标转换的地方都必须调用这两个方法
+    # =========================================================
+    
+    def get_index_from_pos(self, x: float, y: float) -> Tuple[int, int]:
+        """
+        世界坐标 -> 栅格索引 (向下取整)
+        Ex: res=1.0, pos=0.9 -> index=0; pos=1.1 -> index=1
+        """
+        # 使用 floor 确保正数区间内的逻辑一致性
+        x_idx = int(math.floor(x / self.config.xy_resolution))
+        y_idx = int(math.floor(y / self.config.xy_resolution))
+        return x_idx, y_idx
+
+    def get_pos_from_index(self, x_idx: int, y_idx: int) -> Tuple[float, float]:
+        """
+        栅格索引 -> 世界坐标中心
+        Ex: res=1.0, index=0 -> pos=0.5
+        用于：可视化画点、A* 节点中心坐标计算、碰撞检测精确距离计算
+        """
+        x = (x_idx + 0.5) * self.config.xy_resolution
+        y = (y_idx + 0.5) * self.config.xy_resolution
+        return x, y
+
+    # =========================================================
+    #  业务逻辑
+    # =========================================================
+
     def check_collision(self, x: float, y: float, yaw: float) -> bool:
         """
         [实现 BaseMap 接口]
@@ -60,9 +86,8 @@ class GridMap(BaseMap):
             cx = x + offset * math.cos(yaw)
             cy = y + offset * math.sin(yaw)
             
-            # 2. 转换为栅格索引
-            cx_idx = round(cx / self.config.xy_resolution)
-            cy_idx = round(cy / self.config.xy_resolution)
+            # 2. 转换为栅格索引 (使用统一接口)
+            cx_idx, cy_idx = self.get_index_from_pos(cx, cy)
             
             # 3. 越界检查 (Out of bounds check)
             if (cx_idx < 0 or cx_idx >= self.width_idx or
@@ -74,23 +99,25 @@ class GridMap(BaseMap):
             if self.obstacle_map[cx_idx][cy_idx]:
                 return True
             
-            # 5. (可选) 邻域安全检查
-            # 如果圆的半径比栅格分辨率大，单纯检查圆心是不够的。
-            # 这里做一个简单的近似：检查圆心周围一圈的格子
-            # 这种方法比完全的几何求交快得多，对于自动驾驶路径规划通常足够精确
-            search_radius_grid = int(math.ceil(self.vehicle_config.collision_radius / self.config.xy_resolution))
-            
-            # 优化：只在靠近障碍物时才进行细致检查 (可以根据具体需求开启)
-            # 这里为了健壮性，我们检查圆心周围的小方块区域
-            # 注意：这还是近似，如果需要绝对精确，应用 KD-Tree 查询圆内所有障碍点
-            for i in range(-1, 2): # 检查 3x3 邻域
+            # 5. 邻域精确检查 (Circle Approximation refinement)
+            # 因为我们把圆心离散化到了 cx_idx，但这不代表圆只覆盖这一个格子。
+            # 如果圆半径很大，或者圆心刚好在格子边缘，可能碰撞到隔壁格子。
+            # 这里我们检查圆心所在的 3x3 邻域。
+            for i in range(-1, 2):
                 for j in range(-1, 2):
                     nx, ny = cx_idx + i, cy_idx + j
+                    
+                    # 边界检查
                     if 0 <= nx < self.width_idx and 0 <= ny < self.height_idx:
                         if self.obstacle_map[nx][ny]:
-                            # 如果邻域有障碍物，计算精确距离
-                            dist = math.hypot((nx - cx_idx)*self.config.xy_resolution, 
-                                            (ny - cy_idx)*self.config.xy_resolution)
+                            # 如果邻居是障碍物，计算【圆心】到【障碍物格子中心】的物理距离
+                            obs_x_center, obs_y_center = self.get_pos_from_index(nx, ny)
+                            
+                            dist = math.hypot(cx - obs_x_center, cy - obs_y_center)
+                            
+                            # 考虑到障碍物其实是方格，这里用圆半径判断是保守估计
+                            # 更严谨的做法是 Circle-AABB 碰撞，但在规划中这样通常够用了
+                            # 这里的判定逻辑是：如果障碍物中心在圆内，则碰撞 (近似)
                             if dist <= self.vehicle_config.collision_radius:
                                 return True
 
@@ -103,13 +130,12 @@ class GridMap(BaseMap):
         """
         return (0.0, self.width_m, 0.0, self.height_m)
 
-    # --- 以下是 GridMap 特有的辅助方法 (非 BaseMap 接口强制) ---
-
     def generate_random_map(self, width_m: float, height_m: float, obstacle_num: int):
         """生成测试用的随机障碍物地图"""
         self.width_m = width_m
         self.height_m = height_m
         
+        # 计算数组大小 (使用 round 确定整体尺寸是合理的)
         self.width_idx = round(width_m / self.config.xy_resolution)
         self.height_idx = round(height_m / self.config.xy_resolution)
         
@@ -124,6 +150,7 @@ class GridMap(BaseMap):
             self.obstacle_map[self.width_idx - 1][i] = True
             
         # 随机障碍物
+        # 注意：这里我们避开最外圈墙壁，所以范围缩进
         for _ in range(obstacle_num):
             x = random.randint(1, self.width_idx - 2)
             y = random.randint(1, self.height_idx - 2)
@@ -138,8 +165,12 @@ class GridMap(BaseMap):
         for x in range(self.width_idx):
             for y in range(self.height_idx):
                 if self.obstacle_map[x][y]:
-                    obs_x.append(x * self.config.xy_resolution)
-                    obs_y.append(y * self.config.xy_resolution)
+                    # 调用 get_pos_from_index 获取物理中心
+                    # 这样画出来的点，物理上就是感知认为的障碍物中心
+                    # 并且会与 imshow 的热力图方块中心对齐
+                    px, py = self.get_pos_from_index(x, y)
+                    obs_x.append(px)
+                    obs_y.append(py)
         
         plt.plot(obs_x, obs_y, ".k")
         plt.axis("equal")
@@ -147,27 +178,37 @@ class GridMap(BaseMap):
 
 # --- 单元测试 ---
 if __name__ == "__main__":
-    # 简单的自我测试，确保类可以被实例化和调用
-    print("Testing GridMap...")
+    print("Testing GridMap with Corrected Coordinates...")
     
-    # 1. 实例化配置
     h_cfg = HybridAStarConfig()
+    # 假设分辨率是 1.0
+    h_cfg.xy_resolution = 1.0 
     v_cfg = VehicleConfig()
     
     # 2. 实例化地图
     gm = GridMap(h_cfg, v_cfg)
-    gm.generate_random_map(50, 50, 100)
+    gm.generate_random_map(20, 20, 30)
     
-    # 3. 测试碰撞检测
-    # 假设在地图中心放一辆车
-    is_hit = gm.check_collision(25.0, 25.0, 0.0)
-    print(f"Collision check at (25, 25): {'HIT' if is_hit else 'FREE'}")
+    # 验证 SSOT
+    # 1. 测试坐标转换
+    test_pos = (5.9, 5.1)
+    idx = gm.get_index_from_pos(*test_pos)
+    print(f"Pos {test_pos} -> Index {idx} (Expected: (5, 5))")
     
-    # 4. 绘图
-    plt.figure(figsize=(8, 8))
+    center_pos = gm.get_pos_from_index(*idx)
+    print(f"Index {idx} -> Center Pos {center_pos} (Expected: (5.5, 5.5))")
+
+    # 2. 绘图验证
+    plt.figure(figsize=(6, 6))
     gm.plot_map()
-    # 画一个代表车的点
-    plt.plot(25.0, 25.0, "or", markersize=10, label="Test Car")
+    
+    # 画一个红色的框代表 Grid(5,5) 的物理范围
+    rect = plt.Rectangle((5.0, 5.0), 1.0, 1.0, linewidth=2, edgecolor='r', facecolor='none', label='Grid(5,5) Bounds')
+    plt.gca().add_patch(rect)
+    
+    # 画转换后的中心点
+    plt.plot(center_pos[0], center_pos[1], "xr", markersize=12, label='Grid Center')
+    
     plt.legend()
-    plt.title("Refactored GridMap Test")
+    plt.title("GridMap Coordinate System Check")
     plt.show()
