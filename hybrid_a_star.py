@@ -4,7 +4,7 @@ import numpy as np
 from config import Config
 
 class Node:
-    def __init__(self, x_ind, y_ind, yaw_ind, direction, x_list, y_list,
+    def __init__(self, x_ind, y_ind, yaw_ind, direction, x_list, y_list, yaw_list,
                  steer, pin_index, cost, yaw):
         """
         Hybrid A* 的节点
@@ -14,6 +14,7 @@ class Node:
         :param direction: 移动方向 (1: 前进, -1: 后退)
         :param x_list: 轨迹上的 X 坐标列表 (float)
         :param y_list: 轨迹上的 Y 坐标列表 (float)
+        :param yaw_list: 轨迹上的 Yaw 角度列表 (float)
         :param steer: 到达该节点时的转向角 (float)
         :param pin_index: 父节点索引 (int)
         :param cost: 路径代价值 (g + h) (float)
@@ -25,6 +26,7 @@ class Node:
         self.direction = direction
         self.x_list = x_list
         self.y_list = y_list
+        self.yaw_list = yaw_list  
         self.steering = steer
         self.parent_index = pin_index
         self.cost = cost
@@ -81,11 +83,12 @@ def calc_next_states(current_node, config):
             # 使用列表推导式复制一份新的轨迹列表，避免修改原列表
             x_list = list(current_node.x_list)
             y_list = list(current_node.y_list)
+            yaw_list = list(current_node.yaw_list) 
 
             # 获取当前物理状态 (取上一段轨迹的终点)
             node_x = x_list[-1]
             node_y = y_list[-1]
-            node_yaw = current_node.yaw  # 直接使用存储的精确物理角度
+            node_yaw = yaw_list[-1]  # 从历史列表中取最后一个角度，更加一致
 
             # 2. 模拟积分
             dist = direction * step_length
@@ -100,6 +103,7 @@ def calc_next_states(current_node, config):
                 )
                 x_list.append(curr_x)
                 y_list.append(curr_y)
+                yaw_list.append(curr_yaw) 
 
             # 3. 计算栅格索引 (用于 A* CloseSet 判重)
             x_ind = round(curr_x / config.XY_RES)
@@ -107,8 +111,9 @@ def calc_next_states(current_node, config):
             yaw_ind = round(curr_yaw / config.YAW_RES)
 
             # 4. 创建新节点
-            # 注意：这里将计算出的精确 curr_yaw 传入新节点
-            new_node = Node(x_ind, y_ind, yaw_ind, direction, x_list, y_list,
+            # 注意：传入 updated yaw_list
+            new_node = Node(x_ind, y_ind, yaw_ind, direction, 
+                            x_list, y_list, yaw_list, 
                             steer, current_node.parent_index, 0.0, curr_yaw)
             
             next_nodes.append(new_node)
@@ -120,9 +125,11 @@ if __name__ == "__main__":
     print("Testing Motion Primitives with updated Node class...")
     cfg = Config()
     
-    # 初始化起点：物理角度设为 0.0
-    # 参数顺序: x_ind, y_ind, yaw_ind, dir, x_list, y_list, steer, parent, cost, yaw(float)
-    start_node = Node(0, 0, 0, 1, [0.0], [0.0], 0.0, -1, 0.0, 0.0)
+    # 初始化起点：
+    # 注意：yaw_list 初始化为 [0.0]
+    start_node = Node(x_ind=0, y_ind=0, yaw_ind=0, direction=1, 
+                      x_list=[0.0], y_list=[0.0], yaw_list=[0.0], 
+                      steer=0.0, pin_index=-1, cost=0.0, yaw=0.0)
     
     # 计算下一步所有可能的轨迹
     next_nodes = calc_next_states(start_node, cfg)
@@ -141,7 +148,7 @@ if __name__ == "__main__":
                   
     plt.grid(True)
     plt.axis("equal")
-    plt.title(f"Motion Primitives\nGenerated {len(next_nodes)} branches")
+    plt.title(f"Motion Primitives with Yaw Tracking\nGenerated {len(next_nodes)} branches")
     plt.xlabel("X [m]")
     plt.ylabel("Y [m]")
     plt.show()
