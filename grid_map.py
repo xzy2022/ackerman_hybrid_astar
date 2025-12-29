@@ -99,7 +99,7 @@ class GridMap:
         plt.axis("equal")
         plt.title("Grid Map Generator Test")
         plt.legend()
-        plt.show()
+
 
 # --- 单元测试代码 ---
 if __name__ == "__main__":
@@ -122,3 +122,4 @@ if __name__ == "__main__":
     
     # 绘图确认
     gm.plot_map(start_m=[sx, sy], goal_m=[gx, gy])
+    plt.show()
