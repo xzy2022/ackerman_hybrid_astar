@@ -37,9 +37,8 @@ class HolonomicHeuristic(BaseHeuristic):
         [实现 BaseHeuristic 接口]
         获取当前状态的启发式代价。如果目标点变了，会自动重新计算势场。
         """
-        # 1. 解析目标点索引
-        gx_idx = round(goal_pose[0] / self.config.xy_resolution)
-        gy_idx = round(goal_pose[1] / self.config.xy_resolution)
+        # 1. 解析目标点索引 (SSOT: 依赖地图类进行转换)
+        gx_idx, gy_idx = self.grid_map.get_index_from_pos(goal_pose[0], goal_pose[1])
         current_goal_idx = (gx_idx, gy_idx)
 
         # 2. 检查是否需要重新运行 Dijkstra (Lazy Update)
@@ -47,9 +46,9 @@ class HolonomicHeuristic(BaseHeuristic):
             self._update_dijkstra_field(current_goal_idx)
             self.last_goal_index = current_goal_idx
 
-        # 3. 解析当前点索引
-        cx_idx = round(current_pose[0] / self.config.xy_resolution)
-        cy_idx = round(current_pose[1] / self.config.xy_resolution)
+        # 3. 解析当前点索引 (SSOT: 依赖地图类进行转换)
+        # 这一步非常关键，以前用 round 可能会导致车在格子边缘时算出错误的 H 值
+        cx_idx, cy_idx = self.grid_map.get_index_from_pos(current_pose[0], current_pose[1])
 
         # 4. 查表获取 h_cost
         h_cost = float('inf')
@@ -83,7 +82,7 @@ class HolonomicHeuristic(BaseHeuristic):
         
         # 目标点在地图外，直接返回（此时所有查询都会走 Fallback）
         if not (0 <= gx < w and 0 <= gy < h):
-            print("Warning: Goal is outside grid map!")
+            print(f"Warning: Goal index {goal_index} is outside grid map!")
             return
 
         # 初始化搜索
@@ -126,13 +125,11 @@ class HolonomicHeuristic(BaseHeuristic):
                 if new_cost < self.heuristic_map[nx][ny]:
                     self.heuristic_map[nx][ny] = new_cost
                     heapq.heappush(pq, (new_cost, nx, ny))
-        
-        # print("Heuristic: Field updated.")
 
     def visualize_cost_map(self):
         """
-        科研功能：可视化启发式代价热力图。
-        这对于论文中展示“势场引导效果”非常有用。
+        可视化启发式代价热力图。这对于论文中展示“势场引导效果”非常有用。
+        使用 extent 和 map 接口确保与障碍物地图完美对齐。
         """
         if self.heuristic_map is None:
             print("Heuristic map is empty.")
@@ -160,42 +157,56 @@ class HolonomicHeuristic(BaseHeuristic):
                    cmap='jet_r', 
                    interpolation='nearest',
                    extent=extent,  # 把索引拉伸成物理尺寸
-                   alpha=0.6)
+                   alpha=0.6) # 半透明，以便看到底下的障碍物点
         
         plt.colorbar(label='Heuristic Cost (Distance to Goal)')
         plt.title("Holonomic Heuristic Field")
         
+        # 标记目标点
         if self.last_goal_index:
-            # 目标点也要转回米制单位才能对齐
-            gx_m = self.last_goal_index[0] * self.config.xy_resolution
-            gy_m = self.last_goal_index[1] * self.config.xy_resolution
-            plt.plot(gx_m, gy_m, "*w", markersize=15, label="Goal")
+            # 使用 GridMap 接口获取目标格子的物理中心
+            # 这样星星会画在方格的正中间
+            gx_m, gy_m = self.grid_map.get_pos_from_index(
+                self.last_goal_index[0], self.last_goal_index[1]
+            )
+            plt.plot(gx_m, gy_m, "*w", markersize=15, label="Goal Center")
             plt.legend()
 
 # --- 单元测试 ---
 if __name__ == "__main__":
     from src.config import VehicleConfig
     
-    print("Testing HolonomicHeuristic...")
+    print("Testing HolonomicHeuristic with SSOT...")
     
     # 1. 准备环境
     h_cfg = HybridAStarConfig()
     v_cfg = VehicleConfig()
     gm = GridMap(h_cfg, v_cfg)
-    gm.generate_random_map(50, 50, 80) # 生成一些障碍物
+    gm.generate_random_map(40, 40, 60)
     
     # 2. 初始化启发式
     heuristic = HolonomicHeuristic(h_cfg, gm)
     
-    # 3. 设定测试点
-    start_pos = (10.0, 10.0, 0.0)
-    goal_pos = (40.0, 40.0, 0.0)
+    # 3. 设定测试点 (故意使用非整数坐标测试转换逻辑)
+    start_pos = (5.2, 5.8, 0.0) 
+    goal_pos = (30.7, 30.1, 0.0)
     
     # 4. 计算代价 (第一次调用会触发 Dijkstra 计算)
     cost = heuristic.calculate(start_pos, goal_pos)
     print(f"Heuristic cost from {start_pos} to {goal_pos}: {cost:.2f}")
     
-    # 5. 可视化
-    gm.plot_map() # 画底层障碍物
-    heuristic.visualize_cost_map() # 画上层热力图
+    # 5. 联合可视化
+    plt.figure(figsize=(10, 10))
+    
+    # 先画地图障碍物 (黑点)
+    gm.plot_map()
+    
+    # 再叠加势场热力图
+    heuristic.visualize_cost_map()
+    
+    # 画出起点和终点的物理位置，看是否落在对应的格子内
+    plt.plot(start_pos[0], start_pos[1], "ob", label="Start Pos")
+    plt.plot(goal_pos[0], goal_pos[1], "xb", markersize=10, label="Goal Pos Input")
+    
+    plt.legend()
     plt.show()
