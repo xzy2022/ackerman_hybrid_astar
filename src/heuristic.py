@@ -138,21 +138,38 @@ class HolonomicHeuristic(BaseHeuristic):
             print("Heuristic map is empty.")
             return
 
-        plt.figure(figsize=(10, 8))
         # 转置以匹配 (x, y) 坐标系显示习惯
         # 使用 'jet' 颜色映射，无穷大值通常显示为深红色或特定颜色
         # 为了显示效果，可以将 inf 替换为一个大数值
         disp_map = self.heuristic_map.copy()
         max_val = np.nanmax(disp_map[disp_map != float('inf')])
-        disp_map[disp_map == float('inf')] = max_val * 1.2 # 让障碍物显示最深色
+        # 将 inf 设置为稍微大一点的值，以便显示
+        disp_map[disp_map == float('inf')] = max_val * 1.2
+
+        # 2. 计算物理范围 (extent)
+        # extent = [xmin, xmax, ymin, ymax]
+        # 注意：这里假设地图原点是 (0,0)
+        map_width_m = self.grid_map.width_idx * self.config.xy_resolution
+        map_height_m = self.grid_map.height_idx * self.config.xy_resolution
+        extent = [0, map_width_m, 0, map_height_m]
+
+        # 3. 绘制 imshow 并指定 extent
+        # alpha=0.6 设置透明度，这样能透过热力图看到底下的障碍物点
+        plt.imshow(disp_map.T, 
+                   origin='lower', 
+                   cmap='jet_r', 
+                   interpolation='nearest',
+                   extent=extent,  # 把索引拉伸成物理尺寸
+                   alpha=0.6)
         
-        plt.imshow(disp_map.T, origin='lower', cmap='jet_r', interpolation='nearest')
         plt.colorbar(label='Heuristic Cost (Distance to Goal)')
         plt.title("Holonomic Heuristic Field")
         
-        # 标记目标点
         if self.last_goal_index:
-            plt.plot(self.last_goal_index[0], self.last_goal_index[1], "*w", markersize=15, label="Goal")
+            # 目标点也要转回米制单位才能对齐
+            gx_m = self.last_goal_index[0] * self.config.xy_resolution
+            gy_m = self.last_goal_index[1] * self.config.xy_resolution
+            plt.plot(gx_m, gy_m, "*w", markersize=15, label="Goal")
             plt.legend()
 
 # --- 单元测试 ---
@@ -179,5 +196,6 @@ if __name__ == "__main__":
     print(f"Heuristic cost from {start_pos} to {goal_pos}: {cost:.2f}")
     
     # 5. 可视化
+    gm.plot_map() # 画底层障碍物
     heuristic.visualize_cost_map() # 画上层热力图
     plt.show()
