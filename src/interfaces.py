@@ -48,6 +48,10 @@ class PlannerResult:
     
     # 调试/科研数据包 (如果不开启 debug 模式，可能为空)
     debug_data: SearchDebugData = field(default_factory=SearchDebugData)
+    
+    # 严格碰撞检测结果：被碰撞的障碍物坐标列表 [(x, y), ...]
+    # 用于 Ground Truth Check 和消融实验分析
+    collided_obstacles_coords: List[Tuple[float, float]] = field(default_factory=list)
 
 class BaseMap(ABC):
     """

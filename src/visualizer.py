@@ -65,6 +65,13 @@ class Visualizer:
         self._plot_car_body(ax, start[0], start[1], start[2], color=self.colors['start'], label="Start")
         self._plot_car_body(ax, goal[0], goal[1], goal[2], color=self.colors['goal'], label="Goal")
 
+        # 绘制严格碰撞检测发现的碰撞点（黄色 X 标记）
+        if result.collided_obstacles_coords:
+            collision_x = [coord[0] for coord in result.collided_obstacles_coords]
+            collision_y = [coord[1] for coord in result.collided_obstacles_coords]
+            ax.plot(collision_x, collision_y, 'yx', markersize=10, markeredgewidth=2, 
+                    label="Strict Collision Detected", zorder=15)
+
         # 设置图表属性
         ax.set_title(title)
         ax.legend(loc='upper right')

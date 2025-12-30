@@ -46,6 +46,22 @@ def main():
     
     if result.success:
         print(f"Success! Cost: {result.cost:.2f}, Nodes: {result.debug_data.nodes_expanded}")
+        
+        # 5. 严格碰撞检测（Ground Truth Check）
+        # 使用多边形精确检测验证规划结果的安全性
+        # 这可以作为消融实验的一部分，对比圆形近似检测与多边形精确检测的差异
+        print("Running strict collision detection...")
+        collided_obstacles = grid_map.check_strict_path_collision(
+            result.path_x, result.path_y, result.path_yaw
+        )
+        result.collided_obstacles_coords = collided_obstacles
+        
+        if collided_obstacles:
+            print(f"WARNING: Strict collision detected! {len(collided_obstacles)} obstacle(s) collided.")
+            print("This indicates the circle approximation model used during planning")
+            print("may have missed some collisions that polygon detection catches.")
+        else:
+            print("Strict collision check passed! No collisions detected.")
     else:
         print("Planning Failed.")
 

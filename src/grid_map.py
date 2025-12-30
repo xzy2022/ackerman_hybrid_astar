@@ -2,7 +2,8 @@ import math
 import random
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Tuple, Optional
+import matplotlib.path as mpath
+from typing import Tuple, Optional, List
 
 # 导入接口与配置
 from src.interfaces import BaseMap
@@ -175,6 +176,65 @@ class GridMap(BaseMap):
         plt.plot(obs_x, obs_y, ".k")
         plt.axis("equal")
         plt.grid(True)
+
+    def check_strict_path_collision(self, path_x: List[float], path_y: List[float], path_yaw: List[float]) -> List[Tuple[float, float]]:
+        """
+        严格碰撞检测（多边形精确检测）。
+        
+        使用车辆多边形进行精确碰撞检测，对比规划时的圆形近似模型。
+        这可以作为 Ground Truth Check 和消融实验分析。
+        
+        Args:
+            path_x: 路径 x 坐标列表 [m]
+            path_y: 路径 y 坐标列表 [m]
+            path_yaw: 路径航向角列表 [rad]
+            
+        Returns:
+            List[Tuple[float, float]]: 被碰撞的障碍物坐标列表 [(x, y), ...]
+        """
+        if self.obstacle_map is None:
+            return []
+        
+        collided_obstacles = []
+        outline = self.vehicle_config.vehicle_outline
+        
+        # 遍历路径上的每一个位姿
+        for i in range(len(path_x)):
+            x, y, yaw = path_x[i], path_y[i], path_yaw[i]
+            
+            # 1. 构建车辆多边形
+            # 旋转矩阵 (2x2)
+            rot = np.array([
+                [math.cos(yaw), math.sin(yaw)],
+                [-math.sin(yaw), math.cos(yaw)]
+            ])
+            
+            # 变换: Outline(2xN) -> Transpose -> Dot -> Transpose -> Translate
+            rotated_outline = (outline.T.dot(rot)).T
+            rotated_outline[0, :] += x
+            rotated_outline[1, :] += y
+            
+            # 创建 matplotlib.path 对象用于点在多边形内检测
+            vehicle_path = mpath.Path(rotated_outline.T)
+            
+            # 2. 计算车辆 Bounding Box 以优化检测范围
+            min_x_idx = max(0, int(math.floor(np.min(rotated_outline[0, :]) / self.config.xy_resolution)))
+            max_x_idx = min(self.width_idx - 1, int(math.ceil(np.max(rotated_outline[0, :]) / self.config.xy_resolution)))
+            min_y_idx = max(0, int(math.floor(np.min(rotated_outline[1, :]) / self.config.xy_resolution)))
+            max_y_idx = min(self.height_idx - 1, int(math.ceil(np.max(rotated_outline[1, :]) / self.config.xy_resolution)))
+            
+            # 3. 仅检查 Bounding Box 内的障碍物栅格
+            for ix in range(min_x_idx, max_x_idx + 1):
+                for iy in range(min_y_idx, max_y_idx + 1):
+                    if self.obstacle_map[ix][iy]:
+                        # 获取障碍物栅格中心的物理坐标
+                        obs_x, obs_y = self.get_pos_from_index(ix, iy)
+                        
+                        # 检查障碍物中心是否在车辆多边形内
+                        if vehicle_path.contains_point((obs_x, obs_y)):
+                            collided_obstacles.append((obs_x, obs_y))
+        
+        return collided_obstacles
 
 # --- 单元测试 ---
 if __name__ == "__main__":
