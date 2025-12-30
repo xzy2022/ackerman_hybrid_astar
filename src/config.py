@@ -44,6 +44,7 @@ class VehicleConfig:
         # 圆心位置：后轴(0)，轴距中点(L/2)，前轴(L)
         # 如果车辆更长，可以在此修改逻辑增加圆的数量
         self.collision_offsets = [0.0, self.wheelbase / 2.0, self.wheelbase]
+        self.collision_offsets = [-self.rear_hang / 2, 0.0, self.wheelbase / 2.0, self.wheelbase, 0.9 * self.front_hang] 
 
 @dataclass
 class HybridAStarConfig:
