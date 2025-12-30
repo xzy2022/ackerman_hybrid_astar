@@ -1,16 +1,7 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import numpy as np
-import sys
-import os
 
-# --- 路径处理 ---
-# 确保可以导入上级目录的 src 模块
-# 假设脚本运行位置在 tests/ 目录下或项目根目录下
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, ".."))
-if project_root not in sys.path:
-    sys.path.append(project_root)
 
 from src.config import VehicleConfig
 

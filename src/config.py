@@ -39,7 +39,7 @@ class VehicleConfig:
 
         # 3. 计算碰撞检测圆参数 (3圆覆盖模型)
         # 半径 = 车宽一半 + 安全余量(0.1m)
-        self.collision_radius = self.width / 2.0 + 0.1
+        self.collision_radius = self.width / 2.0 + 0.2
         
         # 圆心位置：后轴(0)，轴距中点(L/2)，前轴(L)
         # 如果车辆更长，可以在此修改逻辑增加圆的数量
