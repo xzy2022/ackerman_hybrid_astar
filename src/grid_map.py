@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.path as mpath
 from typing import Tuple, Optional, List
+from shapely.geometry import Polygon, box
 
 # 导入接口与配置
 from src.interfaces import BaseMap
@@ -177,54 +178,14 @@ class GridMap(BaseMap):
         plt.axis("equal")
         plt.grid(True)
 
-    def _line_segments_intersect(self, p1: Tuple[float, float], p2: Tuple[float, float],
-                                  p3: Tuple[float, float], p4: Tuple[float, float]) -> bool:
-        """
-        检查两条线段是否相交（使用叉积法）。
-
-        Args:
-            p1, p2: 第一条线段的端点
-            p3, p4: 第二条线段的端点
-
-        Returns:
-            bool: 线段是否相交
-        """
-        def cross_product(a, b, c):
-            """计算向量 ab 和 ac 的叉积"""
-            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-
-        def on_segment(a, b, c):
-            """检查点 c 是否在线段 ab 上"""
-            return (min(a[0], b[0]) <= c[0] <= max(a[0], b[0]) and
-                    min(a[1], b[1]) <= c[1] <= max(a[1], b[1]))
-
-        cp1 = cross_product(p1, p2, p3)
-        cp2 = cross_product(p1, p2, p4)
-        cp3 = cross_product(p3, p4, p1)
-        cp4 = cross_product(p3, p4, p2)
-
-        # 检查是否跨立
-        if ((cp1 * cp2 < 0) and (cp3 * cp4 < 0)):
-            return True
-
-        # 检查是否有端点在另一条线段上
-        if cp1 == 0 and on_segment(p1, p2, p3):
-            return True
-        if cp2 == 0 and on_segment(p1, p2, p4):
-            return True
-        if cp3 == 0 and on_segment(p3, p4, p1):
-            return True
-        if cp4 == 0 and on_segment(p3, p4, p2):
-            return True
-
-        return False
-
     def check_strict_path_collision(self, path_x: List[float], path_y: List[float], path_yaw: List[float]) -> List[Tuple[float, float]]:
         """
         严格碰撞检测（多边形精确检测）。
 
-        使用车辆多边形进行精确碰撞检测，对比规划时的圆形近似模型。
+       使用车辆多边形进行精确碰撞检测，对比规划时的圆形近似模型。
         这可以作为 Ground Truth Check 和消融实验分析。
+
+        实现：使用 Shapely 几何库进行高效的栅格-多边形相交检测。
 
         Args:
             path_x: 路径 x 坐标列表 [m]
@@ -244,7 +205,7 @@ class GridMap(BaseMap):
         for i in range(len(path_x)):
             x, y, yaw = path_x[i], path_y[i], path_yaw[i]
 
-            # 1. 构建车辆多边形
+            # 1. 构建车辆多边形（Shapely Polygon）
             # 旋转矩阵 (2x2)
             rot = np.array([
                 [math.cos(yaw), math.sin(yaw)],
@@ -256,8 +217,13 @@ class GridMap(BaseMap):
             rotated_outline[0, :] += x
             rotated_outline[1, :] += y
 
-            # 创建 matplotlib.path 对象用于点在多边形内检测
-            vehicle_path = mpath.Path(rotated_outline.T)
+            # 提取多边形顶点（去除重复的最后一个点）
+            vehicle_vertices = []
+            for j in range(rotated_outline.shape[1] - 1):  # -1 去掉重复的起点
+                vehicle_vertices.append((rotated_outline[0, j], rotated_outline[1, j]))
+
+            # 创建 Shapely Polygon 对象
+            vehicle_polygon = Polygon(vehicle_vertices)
 
             # 2. 计算车辆 Bounding Box 以优化检测范围
             min_x_idx = max(0, int(math.floor(np.min(rotated_outline[0, :]) / self.config.xy_resolution)))
@@ -267,72 +233,23 @@ class GridMap(BaseMap):
 
             # 3. 仅检查 Bounding Box 内的障碍物栅格
             for ix in range(min_x_idx, max_x_idx + 1):
-                for iy in range(min_y_idx, max_y_idx + 1):
+                for iy in range(min_y_idx, max_x_idx + 1):
                     if self.obstacle_map[ix][iy]:
                         # 获取障碍物栅格中心的物理坐标
                         obs_center_x, obs_center_y = self.get_pos_from_index(ix, iy)
 
-                        # 计算栅格的四个角（用于精确相交检测）
+                        # 计算栅格的边界（用于 Shapely 相交检测）
                         res = self.config.xy_resolution
                         grid_min_x = obs_center_x - res / 2
                         grid_max_x = obs_center_x + res / 2
                         grid_min_y = obs_center_y - res / 2
                         grid_max_y = obs_center_y + res / 2
 
-                        # 检查栅格的四个角是否有点在多边形内
-                        corners = [
-                            (grid_min_x, grid_min_y),
-                            (grid_max_x, grid_min_y),
-                            (grid_max_x, grid_max_y),
-                            (grid_min_x, grid_max_y)
-                        ]
+                        # 创建栅格的 AABB (Axis-Aligned Bounding Box)
+                        grid_bbox = box(grid_min_x, grid_min_y, grid_max_x, grid_max_y)
 
-                        corner_in_polygon = False
-                        for corner_x, corner_y in corners:
-                            if vehicle_path.contains_point((corner_x, corner_y)):
-                                corner_in_polygon = True
-                                break
-
-                        # 检查多边形顶点是否在栅格内
-                        vertex_in_grid = False
-                        if not corner_in_polygon:
-                            for vertex_idx in range(rotated_outline.shape[1]):
-                                vx = rotated_outline[0, vertex_idx]
-                                vy = rotated_outline[1, vertex_idx]
-                                if (grid_min_x <= vx <= grid_max_x and
-                                    grid_min_y <= vy <= grid_max_y):
-                                    vertex_in_grid = True
-                                    break
-
-                        # 检查多边形的边是否与栅格的边相交
-                        edge_intersects = False
-                        if not corner_in_polygon and not vertex_in_grid:
-                            # 栅格的四条边
-                            grid_edges = [
-                                ((grid_min_x, grid_min_y), (grid_max_x, grid_min_y)),  # 下边
-                                ((grid_max_x, grid_min_y), (grid_max_x, grid_max_y)),  # 右边
-                                ((grid_max_x, grid_max_y), (grid_min_x, grid_max_y)),  # 上边
-                                ((grid_min_x, grid_max_y), (grid_min_x, grid_min_y)),  # 左边
-                            ]
-
-                            # 多边形的边（outline 的最后一列与第一列重合，形成闭合多边形）
-                            num_outline_points = rotated_outline.shape[1]  # 总共的点数（包括重复的起点）
-                            num_edges = num_outline_points - 1  # 边的数量（4条边）
-
-                            for i in range(num_edges):
-                                p1 = (rotated_outline[0, i], rotated_outline[1, i])
-                                p2 = (rotated_outline[0, i + 1], rotated_outline[1, i + 1])
-
-                                # 检查这条多边形边是否与任何一条栅格边相交
-                                for grid_edge in grid_edges:
-                                    if self._line_segments_intersect(p1, p2, grid_edge[0], grid_edge[1]):
-                                        edge_intersects = True
-                                        break
-                                if edge_intersects:
-                                    break
-
-                        # 如果栅格角在多边形内，或多边形顶点在栅格内，或多边形边与栅格边相交，则碰撞
-                        if corner_in_polygon or vertex_in_grid or edge_intersects:
+                        # 使用 Shapely 检测相交（高效且精确）
+                        if vehicle_polygon.intersects(grid_bbox):
                             collided_obstacles.append((obs_center_x, obs_center_y))
 
         return collided_obstacles
