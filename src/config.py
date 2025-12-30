@@ -43,8 +43,12 @@ class VehicleConfig:
         
         # 圆心位置：后轴(0)，轴距中点(L/2)，前轴(L)
         # 如果车辆更长，可以在此修改逻辑增加圆的数量
-        self.collision_offsets = [0.0, self.wheelbase / 2.0, self.wheelbase]
-        self.collision_offsets = [-self.rear_hang / 2, 0.0, self.wheelbase / 2.0, self.wheelbase, 0.9 * self.front_hang] 
+        # self.collision_offsets = [0.0, self.wheelbase / 2.0, self.wheelbase]
+        # self.collision_offsets = [-self.rear_hang / 2, 0.0, self.wheelbase / 2.0, self.wheelbase, 0.9 * self.front_hang] 
+
+        # 简单的均匀分布策略
+        num_circles = 5
+        self.collision_offsets = np.linspace(-self.rear_hang + 0.5, self.front_hang - 0.5, num_circles)
 
 @dataclass
 class HybridAStarConfig:
