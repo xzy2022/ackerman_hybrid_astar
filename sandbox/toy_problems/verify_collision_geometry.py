@@ -20,6 +20,7 @@ import matplotlib.patches as patches
 from matplotlib.collections import PatchCollection
 import matplotlib as mpl
 import matplotlib.path as mpath
+from shapely.geometry import Polygon, box
 
 from src.config import VehicleConfig, HybridAStarConfig
 from src.grid_map import GridMap
@@ -294,15 +295,18 @@ def verify_collision_geometry():
     print(f"  Y 范围: [{outline_min_y:.2f}, {outline_max_y:.2f}] m")
 
     # ============================================================
-    #  8. 分析结果 (真正的独立验证版)
+    #  8. 分析结果 (真正的独立验证版 - 使用 Shapely 栅格相交)
     # ============================================================
     print("\n" + "=" * 60)
-    print("测试结果分析 (独立验证版):")
+    print("测试结果分析 (独立验证 - Shapely栅格相交):")
     print("=" * 60)
 
-    # 1. 建立独立裁判：使用 Matplotlib 的 Path 对象计算真值
-    # 注意：这里使用的是点是否在多边形内的检测，与函数的三层检测逻辑完全不同
-    ground_truth_polygon = mpath.Path(vehicle_outline.T)
+    # 1. 建立独立裁判：使用 Shapely 的 Polygon 对象
+    # 提取车辆多边形的顶点（去除重复的最后一个点）
+    vehicle_vertices = []
+    for i in range(vehicle_outline.shape[1] - 1):  # -1 去掉重复的起点
+        vehicle_vertices.append((vehicle_outline[0, i], vehicle_outline[1, i]))
+    vehicle_polygon = Polygon(vehicle_vertices)
 
     # 2. 重新扫描所有刚才生成的障碍物点，通过裁判进行判定
     true_positives = 0   # 应该撞，且测出撞了 (正确)
@@ -310,14 +314,12 @@ def verify_collision_geometry():
     false_negatives = 0  # 应该撞，却没测出来 (漏报)
 
     # 将函数检测到的点转为集合，方便快速查询
-    # 注意：需要保留2位小数以避免浮点数精度问题
     detected_set = set((round(p[0], 2), round(p[1], 2)) for p in collided_obstacles)
 
     # 遍历刚才制造的"雷区"内的所有点
     checked_count = 0
 
     # 优化：只遍历车辆包围盒附近的障碍物点
-    # 计算精确的搜索边界
     search_margin = 0.5  # 搜索范围余量
     min_x_search = int(max(0, (outline_min_x - search_margin) / h_cfg.xy_resolution))
     max_x_search = int(min(grid_map.width_idx, (outline_max_x + search_margin) / h_cfg.xy_resolution + 1))
@@ -326,6 +328,7 @@ def verify_collision_geometry():
 
     print(f"正在独立验证 {len(collided_obstacles)} 个检测点...")
     print(f"搜索范围: X[{min_x_search}:{max_x_search}], Y[{min_y_search}:{max_y_search}]")
+    print(f"裁判方法: Shapely 栅格相交判定 (与函数逻辑一致)")
 
     for ix in range(min_x_search, max_x_search):
         for iy in range(min_y_search, max_y_search):
@@ -333,14 +336,23 @@ def verify_collision_geometry():
                 px, py = grid_map.get_pos_from_index(ix, iy)
                 checked_count += 1
 
-                # A. 裁判判定：这个点到底在不在车身里？
-                # 使用点在多边形内的检测作为独立真值
-                is_inside_truth = ground_truth_polygon.contains_point((px, py))
+                # A. 裁判判定：栅格是否与车辆多边形相交（使用 Shapely）
+                res = h_cfg.xy_resolution
+                grid_min_x = px - res / 2
+                grid_max_x = px + res / 2
+                grid_min_y = py - res / 2
+                grid_max_y = py + res / 2
+
+                # 创建栅格的 AABB (Axis-Aligned Bounding Box)
+                grid_bbox = box(grid_min_x, grid_min_y, grid_max_x, grid_max_y)
+
+                # 使用 Shapely 检测相交
+                is_intersecting_truth = vehicle_polygon.intersects(grid_bbox)
 
                 # B. 函数判定：函数有没有返回这个点？
                 is_detected = (round(px, 2), round(py, 2)) in detected_set
 
-                if is_inside_truth:
+                if is_intersecting_truth:
                     if is_detected:
                         true_positives += 1
                     else:
@@ -360,26 +372,29 @@ def verify_collision_geometry():
     precision = (true_positives / (true_positives + false_positives) * 100) if (true_positives + false_positives) > 0 else 0
     recall = (true_positives / total_truth_points * 100) if total_truth_points > 0 else 0
 
-    print(f"【裁判】真值内部点数: {total_truth_points}")
-    print(f"【函数】检测到的内部点: {true_positives}")
-    print(f"【错误】误报数 (False Pos): {false_positives} (点在车外却被标红)")
-    print(f"【错误】漏报数 (False Neg): {false_negatives} (点在车内却没标红)")
-    print(f"精确率 (Precision): {precision:.2f}% (检测出的点中有多少是对的)")
-    print(f"召回率 (Recall): {recall:.2f}% (真值点中有多少被检测出)")
+    print(f"\n【Shapely裁判】与车辆相交的栅格数: {total_truth_points}")
+    print(f"【函数】检测到的栅格数: {true_positives}")
+    print(f"【错误】误报数 (False Pos): {false_positives} (不相交却检测为碰撞)")
+    print(f"【错误】漏报数 (False Neg): {false_negatives} (相交却未检测出)")
+    print(f"精确率 (Precision): {precision:.2f}%")
+    print(f"召回率 (Recall): {recall:.2f}%")
 
     # 4. 最终判定
     print("-" * 60)
-    if false_positives == 0 and recall > 99.0:
-        print("[PASS] 测试通过！函数精度完美 (独立验证)。")
+    if false_positives == 0 and false_negatives == 0:
+        print("[PASS] 完美！函数与Shapely裁判结果完全一致！")
+    elif false_positives == 0 and recall > 99.0:
+        print("[PASS] 测试通过！函数精度极高 (独立验证)。")
     elif false_positives == 0 and recall > 95.0:
         print("[PASS] 测试基本通过 (存在少量边缘误差，属正常范围)。")
     else:
         print("[FAIL] 测试失败！")
         if false_positives > 0:
-            print(f"  -> 发现 {false_positives} 个误报点（把车外的点算撞了）")
-        if recall <= 95.0:
-            print(f"  -> 召回率太低 ({recall:.1f}%)，漏了很多点")
+            print(f"  -> 发现 {false_positives} 个误报点（函数说相交，Shapely说不相交）")
+        if false_negatives > 0:
+            print(f"  -> 发现 {false_negatives} 个漏报点（Shapely说相交，函数未检测出）")
     print("=" * 60)
+    print("说明：Shapely是成熟的几何计算库，其栅格相交判定可作为Ground Truth")
 
 
 if __name__ == "__main__":
