@@ -23,7 +23,7 @@ def main():
     # 2. 初始化地图 (Environment)
     grid_map = GridMap(h_config, v_config)
     # 生成随机地图：50x50米，80个障碍物
-    grid_map.generate_random_map(width_m=50.0, height_m=50.0, obstacle_num=80)
+    grid_map.generate_random_map(width_m=50.0, height_m=50.0, obstacle_num=150)
     
     # 3. 设定任务 (Mission)
     # 起点 (x, y, yaw_rad)
@@ -56,6 +56,7 @@ def main():
     # 图1: 规划结果总览
     viz.visualize_planning_result(grid_map, start, goal, result, 
                                   show_search_tree=True, 
+                                  animate = True,  # 开启动画演示
                                   title="Scenario 1: Random Obstacles")
     
     # 图2 (可选): 启发式热力图分析
