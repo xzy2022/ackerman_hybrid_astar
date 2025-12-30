@@ -156,10 +156,11 @@ class Visualizer:
 
     def _plot_car_body(self, ax, x, y, yaw, color='black', alpha=1.0, label=None):
         """
-        内部辅助函数：绘制车辆轮廓和方向箭头。
+        内部辅助函数：绘制车辆轮廓和方向箭头，以及【调试用碰撞检测圆】。
         Returns:
-            list: 包含绘制的 Line2D 和 FancyArrow 对象的列表，用于后续清除动画帧。
+            list: 包含绘制的 Line2D, FancyArrow, Patch 对象的列表，用于后续清除动画帧。
         """
+        artists = [] # 存储本帧所有绘图对象
         outline = self.vehicle_config.vehicle_outline
         
         # 旋转矩阵 (2x2)
@@ -169,19 +170,38 @@ class Visualizer:
         ])
         
         # 变换: Outline(2xN) -> Transpose -> Dot -> Transpose -> Translate
-        # (N, 2) dot (2, 2)
         rotated_outline = (outline.T.dot(rot)).T
         rotated_outline[0, :] += x
         rotated_outline[1, :] += y
         
-        # 绘制车身轮廓线
-        # 注意：ax.plot 返回的是一个列表，我们需要解包取第一个元素
+        # 1. 绘制车身轮廓线
         line, = ax.plot(rotated_outline[0, :], rotated_outline[1, :], 
                         color=color, alpha=alpha, linewidth=1.5, label=label)
+        artists.append(line)
         
-        # 绘制车头箭头
+        # 2. 绘制车头箭头
         arrow_len = self.vehicle_config.wheelbase * 0.5
         arrow = ax.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw),
                          head_width=0.3, fc=color, ec=color, alpha=alpha, zorder=10)
+        artists.append(arrow)
+
+        # 3. [新增] 绘制碰撞检测圆 (Visual Debugging)
+        # 只有在配置文件中定义了相关属性才绘制
+        if True:
+            if hasattr(self.vehicle_config, 'collision_offsets') and \
+            hasattr(self.vehicle_config, 'collision_radius'):
+                
+                for offset in self.vehicle_config.collision_offsets:
+                    # 计算圆心的世界坐标
+                    # 沿车身航向轴 (Heading) 前后偏移
+                    cx = x + offset * math.cos(yaw)
+                    cy = y + offset * math.sin(yaw)
+                    r = self.vehicle_config.collision_radius
+                    
+                    # 创建圆对象 (Cyan青色，虚线)
+                    circle = plt.Circle((cx, cy), r, color='cyan', fill=False, 
+                                    linestyle='--', linewidth=1, alpha=0.8, zorder=11)
+                    ax.add_patch(circle)
+                    artists.append(circle) # 加入列表以便动画清除
         
-        return [line, arrow]
+        return artists
