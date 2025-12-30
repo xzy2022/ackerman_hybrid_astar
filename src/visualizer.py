@@ -124,8 +124,8 @@ class Visualizer:
         """执行路径跟随动画的内部循环"""
         path_len = len(result.path_x)
         # 根据路径长度自动调整跳帧数，避免长路径动画过慢
-        skip = max(1, path_len // 200) if path_len > 200 else 1
-        dt = 0.05 # 每帧暂停时间
+        skip = max(1, path_len // 100) if path_len > 100 else 1
+        dt = 0.015 # 每帧暂停时间
 
         current_car_artists = []
 
