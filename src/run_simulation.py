@@ -50,8 +50,11 @@ def main():
     h_config.heuristic_weight = 5.0
 
     # === [新增] 将命令行参数应用到配置 ===
-    h_config.record_expansion_history = args.log_tree
-    h_config.record_visited_costs = args.log_closed
+    # 注意：--log-tree 是开关参数，如果指定则为 True，否则保持配置默认值
+    if args.log_tree:
+        h_config.record_expansion_history = True
+    if args.log_closed:
+        h_config.record_visited_costs = True
     h_config.debug_sample_rate = args.sample_rate
 
     # 打印当前的调试配置状态

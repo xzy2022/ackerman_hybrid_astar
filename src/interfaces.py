@@ -15,12 +15,12 @@ class SearchDebugData:
     3. 性能分析（统计扩展节点数）
     """
     # 记录节点的被访问/扩展顺序：[(x, y, yaw), ...]
-    # 用于制作"算法蔓延"的动画 (Closed List)
+    # 用于制作"算法蔓延"的动画 (Closed List - 绿色点)
     expansion_history: List[Tuple[float, float, float]] = field(default_factory=list)
 
-    # 记录 Open List 中剩余的候选节点
-    # 用于可视化"搜索边界"或"候选前沿"
-    open_list_points: List[Tuple[float, float]] = field(default_factory=list)
+    # [Open Set] 记录被生成但尚未扩展的节点
+    # 用于可视化搜索的前沿(Frontier) - 蓝色点
+    open_list_points: List[Tuple[float, float, float]] = field(default_factory=list)
 
     # 记录闭集（ClosedList）中所有节点的最终代价信息
     # key: 状态唯一标识 (如 grid_index_tuple), value: g_cost + h_cost

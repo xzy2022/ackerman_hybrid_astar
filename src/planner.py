@@ -126,7 +126,9 @@ class HybridAStarPlanner(BasePlanner):
                 # 提取 Open List 中剩余候选节点用于可视化
                 # open_list 中的元素直接是 Node 对象（通过 heapq.heappush 添加）
                 for node in open_list:
-                    debug_data.open_list_points.append((node.x_list[-1], node.y_list[-1]))
+                    debug_data.open_list_points.append(
+                        (node.x_list[-1], node.y_list[-1], node.yaw_list[-1])
+                    )
 
                 final_path.debug_data = debug_data
                 return final_path
@@ -177,7 +179,15 @@ class HybridAStarPlanner(BasePlanner):
                     # 如果已存在且旧代价更低，跳过
                     if closed_list[state_key].f_cost <= neighbor.f_cost:
                         continue
-                
+
+                # [Open Set 记录] 记录合法的、即将加入 Open List 的节点
+                # 这些点构成了搜索的前沿（Frontier）
+                if self.config.record_expansion_history:
+                    if debug_data.nodes_expanded % self.config.debug_sample_rate == 0:
+                        debug_data.open_list_points.append(
+                            (neighbor.x_list[-1], neighbor.y_list[-1], neighbor.yaw_list[-1])
+                        )
+
                 # 加入队列
                 heapq.heappush(open_list, neighbor)
                 closed_list[state_key] = neighbor

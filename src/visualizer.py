@@ -48,22 +48,22 @@ class Visualizer:
             map_env.plot_map() # 调用 GridMap 自带的绘图
         
         # [科研] 绘制搜索树 (Search Tree)
-        # 用透明度高的点表示探索过的区域，展示算法的搜索范围
+        # 1. Closed Set (绿色): 已经走过的、确定的路径树
         if show_search_tree and result.debug_data and result.debug_data.expansion_history:
             history = result.debug_data.expansion_history
             x_list = [p[0] for p in history]
             y_list = [p[1] for p in history]
             ax.plot(x_list, y_list, '.', color=self.colors['tree'],
-                     markersize=2, alpha=0.8, label="Closed List (Explored)")
+                     markersize=2, alpha=0.5, label="Closed Set (Expanded)")
 
-            # [新增] 绘制 Open List (候选前沿/搜索边界)
-            # 用蓝色点表示"可能的未来"，与绿色的"过去"形成对比
+            # 2. Open Set (蓝色): 搜索的前沿、候选点
+            # 这些点会包围在绿色树的边缘，显示算法正在尝试探索的方向
             if result.debug_data.open_list_points:
-                open_list = result.debug_data.open_list_points
-                ox = [p[0] for p in open_list]
-                oy = [p[1] for p in open_list]
-                ax.plot(ox, oy, '.', color='blue',
-                        markersize=2, alpha=0.2, label="Open List (Frontier)")
+                open_pts = result.debug_data.open_list_points
+                ox_list = [p[0] for p in open_pts]
+                oy_list = [p[1] for p in open_pts]
+                ax.plot(ox_list, oy_list, '.', color='blue',
+                        markersize=2, alpha=0.3, label="Open Set (Frontier)")
 
         # 绘制最终完整路径线 (作为背景)
         if result.success and result.path_x:
