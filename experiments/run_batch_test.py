@@ -23,7 +23,7 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 root_dir = os.path.dirname(current_dir)
 sys.path.append(root_dir)
 
-from src.config import HybridAStarConfig, VehicleConfig
+from src.config import HybridAStarConfig, VehicleConfig, CollisionMethod
 from src.grid_map import GridMap
 from src.planner import HybridAStarPlanner
 
@@ -84,10 +84,17 @@ def run_single_experiment(exp_id, seed, start_pose, goal_pose, h_config, v_confi
     s_idx = grid_map.get_index_from_pos(start_pose[0], start_pose[1])
     g_idx = grid_map.get_index_from_pos(goal_pose[0], goal_pose[1])
 
-    # 5x5 清理区域（可根据车辆尺寸调整）
-    clear_radius = 2
-    for dx in range(-clear_radius, clear_radius + 1):
-        for dy in range(-clear_radius, clear_radius + 1):
+    # [智能计算] 根据 VehicleConfig 动态计算清理半径 (适配 FOOTPRINT/POLYGON 严格检测)
+    # 逻辑：取前后悬的最大值，加上 1.0m 的安全余量，再换算成栅格数
+    # 这样确保车身旋转时不会立刻扫到障碍物
+    safe_margin_m = max(v_config.front_hang, v_config.rear_hang) + 1.0
+    margin = int(math.ceil(safe_margin_m / h_config.xy_resolution))
+
+    # 仅在调试时打印，避免批量测试刷屏
+    # print(f"Clearing radius: {margin} grids ({safe_margin_m:.1f}m)")
+
+    for dx in range(-margin, margin + 1):
+        for dy in range(-margin, margin + 1):
             # 清理起点附近
             nx, ny = s_idx[0] + dx, s_idx[1] + dy
             if 0 <= nx < grid_map.width_idx and 0 <= ny < grid_map.height_idx:
@@ -287,6 +294,11 @@ def run_experiment():
     h_config = HybridAStarConfig()
     h_config.move_step_grid = 2.0
     h_config.heuristic_weight = 5.0
+
+    # [显式指定] 碰撞检测方法
+    # 即使 config.py 默认值是 FOOTPRINT，显式设置可以确保实验的可复现性和明确性
+    h_config.collision_method = CollisionMethod.FOOTPRINT
+
     v_config = VehicleConfig()
 
     # 准备 CSV 表头
