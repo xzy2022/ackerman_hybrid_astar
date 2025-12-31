@@ -8,7 +8,7 @@ from shapely.geometry import Polygon, box
 
 # 导入接口与配置
 from src.interfaces import BaseMap
-from src.config import HybridAStarConfig, VehicleConfig
+from src.config import HybridAStarConfig, VehicleConfig, CollisionMethod
 
 class GridMap(BaseMap):
     """
@@ -68,20 +68,42 @@ class GridMap(BaseMap):
         return x, y
 
     # =========================================================
-    #  业务逻辑
+    #  业务逻辑：碰撞检测入口
     # =========================================================
 
     def check_collision(self, x: float, y: float, yaw: float) -> bool:
         """
         [实现 BaseMap 接口]
         检查车辆在特定位姿下是否与障碍物碰撞。
-
-        采用 "多圆覆盖模型" (Circle Approximation) 进行快速检测。
-        改进版：使用动态搜索半径，覆盖整个物理圆范围。
+        根据 config.collision_method 分发到具体实现。
         """
         if self.obstacle_map is None:
             return True # 地图未初始化视为不可通行
 
+        method = self.config.collision_method
+
+        if method == CollisionMethod.CIRCLE:
+            return self._check_collision_circle(x, y, yaw)
+        elif method == CollisionMethod.POLYGON:
+            return self._check_collision_polygon(x, y, yaw)
+        elif method == CollisionMethod.FOOTPRINT:
+            # 预留给下一步实现
+            print(f"Warning: Footprint method not implemented yet, fallback to Circle.")
+            return self._check_collision_circle(x, y, yaw)
+        else:
+            # 默认回退到圆形检测
+            return self._check_collision_circle(x, y, yaw)
+
+    # =========================================================
+    #  具体检测策略实现
+    # =========================================================
+
+    def _check_collision_circle(self, x: float, y: float, yaw: float) -> bool:
+        """
+        策略1: 圆形近似检测 (原始逻辑)
+        优点: 极快
+        缺点: 存在覆盖漏洞或过度保守
+        """
         # 遍历车身上的每一个碰撞检测圆 (由 VehicleConfig 定义)
         for offset in self.vehicle_config.collision_offsets:
             # 1. 计算圆心在世界坐标系的位置
@@ -121,6 +143,56 @@ class GridMap(BaseMap):
                                 return True
 
         return False # 通过所有检查，无碰撞
+
+    def _check_collision_polygon(self, x: float, y: float, yaw: float) -> bool:
+        """
+        策略2: 多边形精确检测 (Shapely)
+        优点: 100% 几何精确，Ground Truth
+        缺点: 每次调用都要进行多边形相交运算，比圆检测慢 10-50 倍
+        """
+        # 1. 构建车辆 Shapely 多边形
+        outline = self.vehicle_config.vehicle_outline
+        rot = np.array([
+            [math.cos(yaw), math.sin(yaw)],
+            [-math.sin(yaw), math.cos(yaw)]
+        ])
+        rotated_outline = (outline.T.dot(rot)).T
+        rotated_outline[0, :] += x
+        rotated_outline[1, :] += y
+
+        # 转换为顶点列表（去除重复的最后一个点）
+        vehicle_vertices = []
+        for j in range(rotated_outline.shape[1] - 1):  # -1 去掉重复的起点
+            vehicle_vertices.append((rotated_outline[0, j], rotated_outline[1, j]))
+
+        vehicle_polygon = Polygon(vehicle_vertices)
+
+        # 2. 计算包围盒 (AABB)，快速筛选潜在的障碍物栅格
+        min_x_idx = max(0, int(math.floor(np.min(rotated_outline[0, :]) / self.config.xy_resolution)))
+        max_x_idx = min(self.width_idx - 1, int(math.ceil(np.max(rotated_outline[0, :]) / self.config.xy_resolution)))
+        min_y_idx = max(0, int(math.floor(np.min(rotated_outline[1, :]) / self.config.xy_resolution)))
+        max_y_idx = min(self.height_idx - 1, int(math.ceil(np.max(rotated_outline[1, :]) / self.config.xy_resolution)))
+
+        # 3. 遍历包围盒内的所有格子
+        res = self.config.xy_resolution
+        half_res = res / 2.0
+
+        for ix in range(min_x_idx, max_x_idx + 1):
+            for iy in range(min_y_idx, max_y_idx + 1):
+                # 只有当该格子是障碍物时，才进行昂贵的几何相交检查
+                if self.obstacle_map[ix][iy]:
+                    # 获取该障碍物格子的物理中心
+                    obs_center_x, obs_center_y = self.get_pos_from_index(ix, iy)
+
+                    # 构建格子的几何对象 (box)
+                    grid_box = box(obs_center_x - half_res, obs_center_y - half_res,
+                                   obs_center_x + half_res, obs_center_y + half_res)
+
+                    # 4. 精确检测
+                    if vehicle_polygon.intersects(grid_box):
+                        return True
+
+        return False
 
     def get_bounds(self) -> Tuple[float, float, float, float]:
         """

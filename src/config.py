@@ -3,6 +3,13 @@ import numpy as np
 from dataclasses import dataclass, field
 from typing import List, Tuple
 
+# --- 碰撞检测方法常量 ---
+class CollisionMethod:
+    """碰撞检测方法枚举"""
+    CIRCLE = "circle"       # 圆形近似 (速度快，精度低)
+    POLYGON = "polygon"     # 多边形几何 (速度慢，精度极高)
+    FOOTPRINT = "footprint" # 栅格查表 (速度极快，精度中高，待实现)
+
 @dataclass
 class VehicleConfig:
     """
@@ -74,7 +81,11 @@ class HybridAStarConfig:
 
     # --- 运动学积分与碰撞检测 ---
     step_interpolation: float = 0.1    # [m] 运动学积分的微元长度（越小轨迹越精确，但计算量越大）
-    collision_check_interval: float = 0.1  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）  
+    collision_check_interval: float = 0.1  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）
+
+    # 碰撞检测方法选择
+    # 可选值: CollisionMethod.CIRCLE, CollisionMethod.POLYGON
+    collision_method: str = CollisionMethod.POLYGON 
     
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
