@@ -68,9 +68,9 @@ class HybridAStarPlanner(BasePlanner):
         # 这里我们在 plan 内部实例化，确保使用最新的地图
         heuristic_algo = HolonomicHeuristic(self.config, map_env)
         
-        # 3. 初始化起点和终点节点
+        # 3. 初始化起点
         sx, sy, syaw = start
-        gx, gy, gyaw = goal
+
         
         start_node = self._create_node(sx, sy, syaw, 1, 0.0, None, 0.0)
         # 计算初始 h 值
@@ -94,15 +94,17 @@ class HybridAStarPlanner(BasePlanner):
             # A. 检查 OpenList 是否为空
             if not open_list:
                 print("Fail: Open set is empty.")
+                # 提取 Open List 数据（此时已为空）
+                debug_data.execution_time_ms = (time.time() - start_time) * 1000
                 return PlannerResult(success=False, debug_data=debug_data)
-            
+
             # B. 弹出优先级最高的节点
             current = heapq.heappop(open_list)
             debug_data.nodes_expanded += 1
-            
+
             # [Debug] 记录扩展历史 (取轨迹片段的最后一个点)
             debug_data.expansion_history.append((current.x_list[-1], current.y_list[-1], current.yaw_list[-1]))
-            
+
             # C. 判断是否到达终点 (Goal Check)
             if self._is_goal_reached(current, goal):
                 print(f"Goal Reached! Cost: {current.f_cost:.2f}")
@@ -111,7 +113,12 @@ class HybridAStarPlanner(BasePlanner):
                 # 填充统计数据
                 debug_data.execution_time_ms = (time.time() - start_time) * 1000
                 debug_data.visited_nodes_cost = {k: v.f_cost for k, v in closed_list.items()}
-                
+
+                # 提取 Open List 中剩余候选节点用于可视化
+                # open_list 中的元素直接是 Node 对象（通过 heapq.heappush 添加）
+                for node in open_list:
+                    debug_data.open_list_points.append((node.x_list[-1], node.y_list[-1]))
+
                 final_path.debug_data = debug_data
                 return final_path
             

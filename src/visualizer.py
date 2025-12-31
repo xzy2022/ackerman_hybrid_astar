@@ -53,8 +53,17 @@ class Visualizer:
             history = result.debug_data.expansion_history
             x_list = [p[0] for p in history]
             y_list = [p[1] for p in history]
-            ax.plot(x_list, y_list, '.', color=self.colors['tree'], 
-                     markersize=2, alpha=0.2, label="Search Tree")
+            ax.plot(x_list, y_list, '.', color=self.colors['tree'],
+                     markersize=2, alpha=0.8, label="Closed List (Explored)")
+
+            # [新增] 绘制 Open List (候选前沿/搜索边界)
+            # 用蓝色点表示"可能的未来"，与绿色的"过去"形成对比
+            if result.debug_data.open_list_points:
+                open_list = result.debug_data.open_list_points
+                ox = [p[0] for p in open_list]
+                oy = [p[1] for p in open_list]
+                ax.plot(ox, oy, '.', color='blue',
+                        markersize=2, alpha=0.2, label="Open List (Frontier)")
 
         # 绘制最终完整路径线 (作为背景)
         if result.success and result.path_x:
