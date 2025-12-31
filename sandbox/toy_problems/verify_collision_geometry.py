@@ -274,10 +274,10 @@ def verify_collision_geometry():
     ax2.set_ylim(vehicle_y - LOCAL_VIEW_RANGE, vehicle_y + LOCAL_VIEW_RANGE)
 
     plt.tight_layout()
-    plt.savefig('sandbox/toy_problems/verify_collision_geometry_result.png',
-                dpi=300, bbox_inches='tight')
-    print(f"\n可视化结果已保存到: sandbox/toy_problems/verify_collision_geometry_result.png")
-    plt.show()  # 关闭图形，释放内存
+    # plt.savefig('sandbox/toy_problems/verify_collision_geometry_result.png',
+    #             dpi=300, bbox_inches='tight')
+    # print(f"\n可视化结果已保存到: sandbox/toy_problems/verify_collision_geometry_result.png")
+    plt.show()  
 
     # 8. 分析结果
     print("\n" + "=" * 60)
