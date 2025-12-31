@@ -136,6 +136,91 @@ class Visualizer:
         # 热力图通常单独展示，直接显示
         plt.show()
 
+    def visualize_cost_comparison(self, map_env: GridMap, heuristic: HolonomicHeuristic, result: PlannerResult):
+        """
+        [论文神器] 绘制 1x2 对比图：
+        左图：启发式代价 (h) - 理想指引
+        右图：闭集代价 (f) - 实际搜索分布
+
+        用于展示：
+        1. 启发式场是否准确引导搜索
+        2. 实际搜索是否沿着最优方向扩展
+        3. 3D 状态空间在 2D 平面上的投影分布
+        """
+        if heuristic.heuristic_map is None:
+            print("Heuristic map is empty. Cannot plot comparison.")
+            return
+
+        # --- 1. 准备数据 ---
+
+        # A. 左图数据 (Heuristic)
+        h_map = heuristic.heuristic_map.copy()
+        # 处理 INF (将不可达区域设为最大值的 1.2 倍，显示为深色)
+        valid_h = h_map != float('inf')
+        max_h = np.max(h_map[valid_h]) if np.any(valid_h) else 100.0
+        h_map[~valid_h] = max_h * 1.2
+
+        # B. 右图数据 (Closed List / Visited)
+        # 原始数据是字典 {(x_idx, y_idx, yaw_idx): cost}
+        # 我们需要将其"投影"到 2D 地图上。
+        # 策略：对于同一个 (x, y) 格子，如果有多个不同角度的节点，取代价最小的那个。
+        c_map = np.full((map_env.width_idx, map_env.height_idx), float('inf'))
+
+        if result.debug_data and result.debug_data.visited_nodes_cost:
+            for (x_idx, y_idx, yaw_idx), cost in result.debug_data.visited_nodes_cost.items():
+                if 0 <= x_idx < map_env.width_idx and 0 <= y_idx < map_env.height_idx:
+                    # 记录该格子见过的最小代价
+                    if cost < c_map[x_idx][y_idx]:
+                        c_map[x_idx][y_idx] = cost
+
+        # 处理 INF (未访问区域设为 NaN，以便在图中留白)
+        c_map_disp = c_map.copy()
+        c_map_disp[c_map_disp == float('inf')] = np.nan
+
+        # --- 2. 开始绘图 ---
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+        extent = [0, map_env.width_m, 0, map_env.height_m]
+
+        # 设置统一的 colormap
+        cmap = plt.cm.jet_r
+        cmap.set_bad(color='white') # 未访问区域显示为白色
+
+        # === 左图：Heuristic Field ===
+        im1 = ax1.imshow(h_map.T, origin='lower', cmap=cmap, extent=extent, interpolation='nearest')
+        ax1.set_title("Heuristic Field (h)\n(Ideal Holonomic Distance to Goal)", fontsize=12)
+        fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04, label='Cost')
+        self._plot_obstacles_overlay(ax1, map_env)
+
+        # === 右图：Actual Search Cost ===
+        im2 = ax2.imshow(c_map_disp.T, origin='lower', cmap=cmap, extent=extent, interpolation='nearest')
+        # 注意：这里默认显示的是 f_cost (g+h)。
+        # 颜色越红(值越小)表示算法认为该节点越"好"。
+        ax2.set_title("Explored Area Costs (f = g + h)\n(Actual Search Wavefront)", fontsize=12)
+        fig.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04, label='Cost')
+        self._plot_obstacles_overlay(ax2, map_env)
+
+        # 标记起终点
+        for ax in [ax1, ax2]:
+            if result.path_x:
+                ax.plot(result.path_x[0], result.path_y[0], 'o', color=self.colors['start'],
+                        markersize=10, markeredgewidth=2, label='Start')
+            if result.path_x:
+                ax.plot(result.path_x[-1], result.path_y[-1], 'o', color=self.colors['goal'],
+                        markersize=10, markeredgewidth=2, label='Goal')
+
+        plt.tight_layout()
+        plt.show()
+
+    def _plot_obstacles_overlay(self, ax, map_env):
+        """辅助函数：绘制半透明障碍物"""
+        obs_x, obs_y = [], []
+        for x in range(map_env.width_idx):
+            for y in range(map_env.height_idx):
+                if map_env.obstacle_map[x][y]:
+                    obs_x.append(x * map_env.config.xy_resolution)
+                    obs_y.append(y * map_env.config.xy_resolution)
+        ax.plot(obs_x, obs_y, '.k', markersize=2, alpha=0.3)
+
     def _run_animation(self, ax, result: PlannerResult):
         """执行路径跟随动画的内部循环"""
         path_len = len(result.path_x)

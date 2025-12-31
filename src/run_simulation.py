@@ -154,6 +154,18 @@ def main():
                                       animate=True if result.success else False, # 失败时不播放动画
                                       title=title)
 
+        # === [新增]：成功时显示代价对比图（需要 --log-closed）===
+        if result.success and args.log_closed and result.debug_data.visited_nodes_cost:
+            print("Generating Cost Comparison Heatmaps (Heuristic vs Actual)...")
+
+            # 重新实例化启发式对象（因为之前的可能没有保存）
+            from src.heuristic import HolonomicHeuristic
+            h_vis = HolonomicHeuristic(h_config, grid_map)
+            h_vis.calculate(start, goal) # 触发 Dijkstra 计算
+
+            # 调用新的对比可视化方法
+            viz.visualize_cost_comparison(grid_map, h_vis, result)
+
         # === [改进点 3]：失败时强制显示热力图 ===
         # 这能让你直观看到为什么从起点走不通
         if not result.success:
