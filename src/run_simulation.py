@@ -1,8 +1,15 @@
 import sys
 import os
 import math
+import random
+import argparse
+import numpy as np
 import matplotlib.pyplot as plt
 
+# 添加项目根目录到 Python 路径
+current_dir = os.path.dirname(os.path.abspath(__file__))
+root_dir = os.path.dirname(current_dir)
+sys.path.append(root_dir)
 
 from src.config import HybridAStarConfig, VehicleConfig
 from src.grid_map import GridMap
@@ -10,19 +17,36 @@ from src.planner import HybridAStarPlanner
 from src.visualizer import Visualizer  
 
 def main():
+    # 解析命令行参数
+    parser = argparse.ArgumentParser(description='Hybrid A* Simulation with Random Seed Support')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed for reproducibility (e.g., 5, 42, etc.)')
+    parser.add_argument('--no-visualization', action='store_true',
+                        help='Run without visualization (for testing)')
+    args = parser.parse_args()
+
     print("=== Hybrid A* Research Simulation ===")
-    
+
+    # 设置随机种子（如果提供）
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        print(f"Random seed set to: {args.seed}")
+    else:
+        print("Random seed: not set (using random initialization)")
+
     # 1. 初始化配置 (Configuration)
     # 你可以在这里修改参数进行对比实验 (Ablation Study)
     h_config = HybridAStarConfig()
     h_config.move_step_grid = 2.0  # 调整步长
     h_config.heuristic_weight = 5.0 # 调整启发式权重
-    
+
     v_config = VehicleConfig()
-    
+
     # 2. 初始化地图 (Environment)
     grid_map = GridMap(h_config, v_config)
-    # 生成随机地图：50x50米，80个障碍物
+    # 生成随机地图：50x50米，150个障碍物
+    # 与批量测试保持一致
     grid_map.generate_random_map(width_m=50.0, height_m=50.0, obstacle_num=150)
     
     # 3. 设定任务 (Mission)
@@ -66,24 +90,28 @@ def main():
         print("Planning Failed.")
 
     # 5. [Visualization] 结果展示 (GUI Phase)
-    # 只有需要看结果时才实例化 Visualizer
-    viz = Visualizer(v_config)
-    
-    # 图1: 规划结果总览
-    viz.visualize_planning_result(grid_map, start, goal, result, 
-                                  show_search_tree=True, 
-                                  animate = True,  # 开启动画演示
-                                  title="Scenario 1: Random Obstacles")
-    
-    # 图2 (可选): 启发式热力图分析
-    # 为了画这个图，我们需要单独访问一下 heuristic 对象（或者让 planner 返回它）
-    # 这里演示重新实例化一个 heuristic 来画图
-    from src.heuristic import HolonomicHeuristic
-    heuristic_debug = HolonomicHeuristic(h_config, grid_map)
-    heuristic_debug.calculate(start, goal) # 触发一次计算以生成 map
-    viz.visualize_heuristic_heatmap(heuristic_debug, grid_map)
-    
-    plt.show()
+    if not args.no_visualization:
+        # 只有需要看结果时才实例化 Visualizer
+        viz = Visualizer(v_config)
+
+        # 图1: 规划结果总览
+        title_prefix = f"Seed={args.seed}" if args.seed is not None else "Random"
+        viz.visualize_planning_result(grid_map, start, goal, result,
+                                      show_search_tree=True,
+                                      animate=True,  # 开启动画演示
+                                      title=f"{title_prefix}: Hybrid A* Planning Result")
+
+        # 图2 (可选): 启发式热力图分析
+        # 为了画这个图，我们需要单独访问一下 heuristic 对象（或者让 planner 返回它）
+        # 这里演示重新实例化一个 heuristic 来画图
+        from src.heuristic import HolonomicHeuristic
+        heuristic_debug = HolonomicHeuristic(h_config, grid_map)
+        heuristic_debug.calculate(start, goal) # 触发一次计算以生成 map
+        viz.visualize_heuristic_heatmap(heuristic_debug, grid_map)
+
+        plt.show()
+    else:
+        print("Visualization skipped (--no-visualization flag set)")
 
 if __name__ == "__main__":
     main()
