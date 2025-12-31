@@ -112,6 +112,8 @@ class GridMap(BaseMap):
         策略1: 圆形近似检测 (原始逻辑)
         优点: 极快
         缺点: 存在覆盖漏洞或过度保守
+        详细说明：直观的做法是判断距离D是否小于半径R+分辨率/根号2，但这会导致过于保守。
+        实际上只比较距离D和半径R，因为工程上D会考虑安全裕量，这样可以减少大量的碰撞检测计算。
         """
         # 遍历车身上的每一个碰撞检测圆 (由 VehicleConfig 定义)
         for offset in self.vehicle_config.collision_offsets:
