@@ -37,16 +37,26 @@ class VehicleConfig:
             [self.width / 2, -self.width / 2, -self.width / 2, self.width / 2, self.width / 2]
         ])
 
-        # 3. 计算碰撞检测圆参数（多圆覆盖模型优化）
+        # 3. 计算碰撞检测圆参数（修正版）
         # 优化策略：使用更多的小圆，而非少而大的圆
-        # 半径刚好等于半车宽（内切车身），减少无效覆盖面积
-        self.collision_radius = self.width / 2.0  # 1.0m（对宽度2.0m的车）
 
-        # 增加圆的数量以弥补缝隙，确保覆盖整个车身长度
-        # 圆心间距设为约 1.0-1.5 倍半径，保证无缝隙
-        num_circles = 7  # 增加数量以提高覆盖率
-        # 从车尾延伸到车头（留出小余量避免边缘检测问题）
-        self.collision_offsets = np.linspace(-self.rear_hang + 0.3, self.front_hang - 0.3, num_circles)
+        # [修正点 1]：增加安全余量 (Safety Margin)
+        # 1.0 (半宽) + 0.15 (覆盖角的对角线增量 + 少量安全缓冲)
+        # 建议值为 1.1 到 1.2 之间
+        self.collision_radius = self.width / 2.0 + 0.18  # 1.15m（对宽度2.0m的车）
+
+        # [修正点 2]：调整圆心分布
+        # 增加圆的数量是好事，但要注意首尾圆的位置
+        num_circles = 7
+
+        # 让首尾圆心距离车头/车尾大约 radius * 0.5 的位置
+        # 这样可以避免圆头突出车身太长（变得像个毛毛虫）
+        # 依靠增大的半径去覆盖车头车尾
+        self.collision_offsets = np.linspace(
+            -self.rear_hang + self.collision_radius * 0.5,
+            self.front_hang - self.collision_radius * 0.5,
+            num_circles
+        )
 
 @dataclass
 class HybridAStarConfig:
