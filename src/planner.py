@@ -175,17 +175,14 @@ class HybridAStarPlanner(BasePlanner):
         dx = node.x_list[-1] - gx
         dy = node.y_list[-1] - gy
         dist = math.hypot(dx, dy)
-        
+
         # 角度差需标准化到 [-pi, pi]
         dyaw = node.yaw_list[-1] - gyaw
         while dyaw >= math.pi: dyaw -= 2*math.pi
         while dyaw < -math.pi: dyaw += 2*math.pi
-        
-        # 阈值写死在这里还是配置？最好在 Config 里，但为了简单先写死或用 Config 的分辨率作为参考
-        dist_threshold = 1.0 # [m]
-        yaw_threshold = math.radians(10.0) # [rad]
-        
-        return dist <= dist_threshold and abs(dyaw) <= yaw_threshold
+
+        # 从配置中读取阈值
+        return dist <= self.config.goal_dist_threshold and abs(dyaw) <= self.config.goal_yaw_threshold
 
     def _expand_node(self, current: Node) -> List[Node]:
         """

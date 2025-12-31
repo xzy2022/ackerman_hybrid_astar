@@ -73,11 +73,17 @@ class HybridAStarConfig:
     
     # --- 其他 ---
     extend_area: float = 0.0     # [m] 碰撞检测额外延展距离
-    
+
+    # --- 终止条件阈值 ---
+    goal_dist_threshold: float = 1.0       # [m] 终点距离阈值
+    goal_yaw_threshold_deg: float = 10.0   # [deg] 终点航向角阈值
+
     # --- 派生属性 ---
     yaw_resolution: float = field(init=False) # [rad]
     step_size: float = field(init=False)      # [m] 实际物理步长
+    goal_yaw_threshold: float = field(init=False) # [rad] 终点航向角阈值(弧度)
 
     def __post_init__(self):
         self.yaw_resolution = math.radians(self.yaw_resolution_deg)
         self.step_size = self.xy_resolution * self.move_step_grid
+        self.goal_yaw_threshold = math.radians(self.goal_yaw_threshold_deg)
