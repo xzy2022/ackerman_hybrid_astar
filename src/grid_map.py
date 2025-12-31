@@ -3,8 +3,9 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.path as mpath
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional, List, Dict
 from shapely.geometry import Polygon, box
+from shapely.affinity import rotate
 
 # 导入接口与配置
 from src.interfaces import BaseMap
@@ -22,25 +23,35 @@ class GridMap(BaseMap):
     def __init__(self, config: HybridAStarConfig, vehicle_config: VehicleConfig):
         """
         初始化栅格地图。
-        
+
         Args:
             config: 包含分辨率等地图参数
             vehicle_config: 包含车辆尺寸，用于内部的碰撞检测计算
         """
         self.config = config
         self.vehicle_config = vehicle_config
-        
+
         # 地图尺寸 (索引单位)
         self.width_idx = 0
         self.height_idx = 0
-        
+
         # 地图物理边界 (米)
         self.width_m = 0.0
         self.height_m = 0.0
-        
+
         # 障碍物数据 (W x H)
         # 初始化为空，需要调用 generate_random_map 或 load_from_image 填充
         self.obstacle_map: Optional[np.ndarray] = None
+
+        # [新增] 查找表 (Footprint Table)
+        # Dict[int_deg, List[Tuple[int, int]]]
+        # key: 离散角度 (度数)，value: 车辆占用的栅格相对偏移量列表
+        self.footprint_table: Dict[int, List[Tuple[int, int]]] = {}
+        self.footprint_yaw_res = config.footprint_yaw_res_deg  # 记录分辨率
+
+        # 如果配置选择了 FOOTPRINT，则执行预计算
+        if self.config.collision_method == CollisionMethod.FOOTPRINT:
+            self._init_collision_lookup_table()
 
     # =========================================================
     #  核心转换逻辑 (Single Source of Truth)
@@ -87,9 +98,7 @@ class GridMap(BaseMap):
         elif method == CollisionMethod.POLYGON:
             return self._check_collision_polygon(x, y, yaw)
         elif method == CollisionMethod.FOOTPRINT:
-            # 预留给下一步实现
-            print(f"Warning: Footprint method not implemented yet, fallback to Circle.")
-            return self._check_collision_circle(x, y, yaw)
+            return self._check_collision_footprint(x, y, yaw)
         else:
             # 默认回退到圆形检测
             return self._check_collision_circle(x, y, yaw)
@@ -191,6 +200,112 @@ class GridMap(BaseMap):
                     # 4. 精确检测
                     if vehicle_polygon.intersects(grid_box):
                         return True
+
+        return False
+
+    def _init_collision_lookup_table(self):
+        """
+        预计算车辆在不同角度下的栅格占用掩码 (Footprint Mask)。
+        结果存储在 self.footprint_table 中。
+        """
+        print(f"[GridMap] Pre-computing footprint table (Res: {self.footprint_yaw_res} deg)...")
+
+        # 1. 准备基础多边形 (以车辆后轴中心为原点 (0,0))
+        # 使用 shapely 构建
+        outline = self.vehicle_config.vehicle_outline
+        base_coords = list(zip(outline[0, :], outline[1, :]))
+        # 去重
+        if base_coords[0] == base_coords[-1]:
+            base_coords.pop()
+        vehicle_poly = Polygon(base_coords)
+
+        # [关键技巧]：预先膨胀多边形
+        # 补偿"车辆中心"与"栅格中心"不重合带来的量化误差
+        # 同时也可以作为安全缓冲
+        padding = getattr(self.config, 'footprint_padding', 0.1)
+        if padding > 0:
+            vehicle_poly = vehicle_poly.buffer(padding, join_style=2)  # join_style=2 (mitre) 保持棱角
+
+        # 2. 遍历所有离散角度 (0, 360)
+        num_angles = int(360 / self.footprint_yaw_res)
+        res = self.config.xy_resolution
+        half_res = res / 2.0
+
+        for i in range(num_angles):
+            deg = i * self.footprint_yaw_res
+            yaw = math.radians(deg)
+
+            # 3. 旋转多边形 (绕原点 (0,0))
+            # shapely 的 rotate 默认是逆时针
+            rotated_poly = rotate(vehicle_poly, deg, origin=(0, 0), use_radians=False)
+
+            # 4. 栅格化 (Rasterization)
+            # 找出这个旋转后的形状覆盖了哪些相对栅格 (dx, dy)
+            # 方法：获取 Bounding Box -> 遍历 -> 严格相交检测
+
+            min_x, min_y, max_x, max_y = rotated_poly.bounds
+
+            # 转换为相对索引范围
+            min_ix = int(math.floor(min_x / res))
+            max_ix = int(math.ceil(max_x / res))
+            min_iy = int(math.floor(min_y / res))
+            max_iy = int(math.ceil(max_y / res))
+
+            offsets = []
+
+            for dx in range(min_ix, max_ix + 1):
+                for dy in range(min_iy, max_iy + 1):
+                    # 构建该栅格的几何框
+                    # 我们要判断的是，当车中心在 (0,0) 时，它是否覆盖了位于 (dx, dy) 的格子
+                    grid_poly = box(dx * res, dy * res, (dx + 1) * res, (dy + 1) * res)
+
+                    if rotated_poly.intersects(grid_poly):
+                        offsets.append((dx, dy))
+
+            self.footprint_table[int(deg)] = offsets
+
+        avg_cells = np.mean([len(v) for v in self.footprint_table.values()]) if self.footprint_table else 0
+        print(f"[GridMap] Footprint table ready. Avg cells per angle: {avg_cells:.1f}")
+
+    def _check_collision_footprint(self, x: float, y: float, yaw: float) -> bool:
+        """
+        策略3: 查表法 (Footprint Table)
+        优点: 极快 (整数加法)，精度高 (预计算了几何形状)
+        """
+        # 1. 计算车辆中心所在的栅格索引
+        cx_idx, cy_idx = self.get_index_from_pos(x, y)
+
+        # 2. 计算角度索引
+        # 归一化到 [0, 360) 并找到最近的离散角度
+        deg = math.degrees(yaw) % 360
+        if deg < 0:
+            deg += 360
+
+        # 找到最近的 key
+        # 比如 res=2, deg=3.1 -> index=2 (即 4度) 或者直接 int(deg/res)*res
+        target_deg = int(round(deg / self.footprint_yaw_res)) * int(self.footprint_yaw_res)
+        target_deg = target_deg % 360  # 防止 360 溢出变成 0
+
+        # 获取偏移量列表
+        # 如果没有预计算 (比如中途切换了配置)，尝试实时 fallback 或报错
+        if not self.footprint_table:
+            # 懒加载 fallback
+            self._init_collision_lookup_table()
+
+        offsets = self.footprint_table.get(target_deg, [])
+
+        # 3. 遍历偏移量进行检测
+        for dx, dy in offsets:
+            nx = cx_idx + dx
+            ny = cy_idx + dy
+
+            # 越界检查
+            if nx < 0 or nx >= self.width_idx or ny < 0 or ny >= self.height_idx:
+                return True  # 车身部分在地图外，视为碰撞
+
+            # 查表
+            if self.obstacle_map[nx][ny]:
+                return True
 
         return False
 

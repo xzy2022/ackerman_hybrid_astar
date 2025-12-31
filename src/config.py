@@ -84,8 +84,17 @@ class HybridAStarConfig:
     collision_check_interval: float = 0.1  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）
 
     # 碰撞检测方法选择
-    # 可选值: CollisionMethod.CIRCLE, CollisionMethod.POLYGON
-    collision_method: str = CollisionMethod.POLYGON 
+    # 可选值: CollisionMethod.CIRCLE, CollisionMethod.POLYGON, CollisionMethod.FOOTPRINT
+    collision_method: str = CollisionMethod.FOOTPRINT
+
+    # --- 查表法专用参数 ---
+    # 查找表的角度分辨率 [deg] (越小越精确，但预计算稍慢，内存稍大。推荐 1.0 或 2.0 度)
+    footprint_yaw_res_deg: float = 2.0
+
+    # 查表法膨胀系数 [m]
+    # 用于补偿 "车辆实际中心" 与 "栅格中心" 的对齐误差 (最大误差 ≈ resolution * 0.7)
+    # 建议设为 resolution * 0.5 左右
+    footprint_padding: float = 0.5 * xy_resolution
     
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
