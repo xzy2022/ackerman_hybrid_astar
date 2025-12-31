@@ -49,11 +49,19 @@ def main():
     start = (10.0, 10.0, math.radians(0.0))
     goal = (40.0, 40.0, math.radians(90.0))
 
-    # 清理起终点周边（使用 GridMap 的统一接口）
+    # 清理起终点周边（智能计算范围）
     s_idx = grid_map.get_index_from_pos(start[0], start[1])
     g_idx = grid_map.get_index_from_pos(goal[0], goal[1])
-    # 扩大清理范围以避免出生即撞墙
-    margin = 3
+
+    # [智能计算] 根据 VehicleConfig 动态计算清理半径
+    # 确保覆盖整个车身（前悬 3.3m，后悬 1.0m）+ 安全余量
+    safe_margin_m = max(v_config.front_hang, v_config.rear_hang) + 1.0
+    margin = int(math.ceil(safe_margin_m / h_config.xy_resolution))
+
+    print(f"Clearing {margin*2+1}x{margin*2+1} grid around Start/Goal "
+          f"(safe_radius={safe_margin_m:.1f}m, margin={margin} grids)")
+
+    # 清理起点和终点周边的障碍物
     for dx in range(-margin, margin+1):
         for dy in range(-margin, margin+1):
             if 0 <= s_idx[0]+dx < grid_map.width_idx and 0 <= s_idx[1]+dy < grid_map.height_idx:
@@ -103,8 +111,10 @@ def main():
             print("    [!] START IS DISCONNECTED from GOAL (Heuristic is INF).")
             print("    Possible causes: Enclosed by obstacles, or map disconnected.")
         else:
-            print("    [OK] Path exists in 2D Grid (ignoring kinematics).")
-            print("    Failure cause: Kinematic constraints (car cannot turn sharp enough).")
+            print("    [OK] Path exists in 2D Grid (vehicle treated as point mass).")
+            print("    Note: Holonomic Heuristic ignores vehicle geometry (width/length).")
+            print("    If planning failed, likely cause: Vehicle body collision")
+            print("              (car's front/rear hits obstacles despite clear path for center).")
         print("="*40 + "\n")
 
     # 5. [Visualization] 结果展示
