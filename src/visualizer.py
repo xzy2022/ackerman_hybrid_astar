@@ -221,6 +221,104 @@ class Visualizer:
                     obs_y.append(y * map_env.config.xy_resolution)
         ax.plot(obs_x, obs_y, '.k', markersize=2, alpha=0.3)
 
+    def animate_search_process(self, map_env: GridMap, heuristic: HolonomicHeuristic, result: PlannerResult, batch_size: int = 20):
+        """
+        [高级调试] 动态播放搜索过程（探索动画）。
+
+        左图：静态的启发式势场（参考）。
+        右图：动态显示的 Closed List 扩展过程。
+
+        Args:
+            batch_size: 每帧绘制的节点数量。太小动画会慢，太大看不清过程。建议 20-50。
+        """
+        if not result.debug_data or not result.debug_data.visited_nodes_cost:
+            print("No visited nodes data available for animation.")
+            return
+
+        print("Preparing Search Process Animation...")
+
+        # --- 1. 数据准备 ---
+
+        # 获取有序的访问节点列表 (Python 3.7+ 字典保持插入顺序)
+        visited_items = list(result.debug_data.visited_nodes_cost.items())
+        total_nodes = len(visited_items)
+
+        # 预计算最大最小代价，用于锁定颜色范围 (vmin/vmax)，防止颜色在动画中闪烁
+        all_costs = [v for k, v in visited_items]
+        min_c, max_c = min(all_costs), max(all_costs)
+
+        # 准备左图数据 (Heuristic) - 静态背景
+        h_map = heuristic.heuristic_map.copy()
+        valid_h = h_map != float('inf')
+        h_max_val = np.max(h_map[valid_h]) if np.any(valid_h) else 100.0
+        h_map[~valid_h] = h_max_val * 1.2
+
+        # 准备右图数据容器 (初始全为 NaN，表示空白)
+        # 形状: [width, height]
+        dynamic_cost_map = np.full((map_env.width_idx, map_env.height_idx), np.nan)
+
+        # --- 2. 初始化绘图 ---
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+        extent = [0, map_env.width_m, 0, map_env.height_m]
+        cmap = plt.cm.jet_r
+        cmap.set_bad(color='white')
+
+        # [左图] 绘制静态 Heuristic
+        ax1.imshow(h_map.T, origin='lower', cmap=cmap, extent=extent, interpolation='nearest')
+        ax1.set_title("Reference: Heuristic Field (Static)", fontsize=12)
+        self._plot_obstacles_overlay(ax1, map_env)
+        # 标记起终点
+        if result.path_x:
+            ax1.plot(result.path_x[0], result.path_y[0], 'o', color=self.colors['start'],
+                    markersize=10, markeredgewidth=2, label='Start')
+            ax1.plot(result.path_x[-1], result.path_y[-1], 'o', color=self.colors['goal'],
+                    markersize=10, markeredgewidth=2, label='Goal')
+
+        # [右图] 初始化动态 Image 对象
+        # vmin/vmax 使用全局最值锁定
+        img_right = ax2.imshow(dynamic_cost_map.T, origin='lower', cmap=cmap,
+                               extent=extent, interpolation='nearest',
+                               vmin=min_c, vmax=max_c)
+
+        ax2.set_title(f"Search Process: 0 / {total_nodes} Nodes", fontsize=12)
+        self._plot_obstacles_overlay(ax2, map_env)
+        # 添加 Colorbar (基于锁定的范围)
+        fig.colorbar(img_right, ax=ax2, fraction=0.046, pad=0.04, label='Cost (g + h)')
+
+        # 同样标记起终点
+        if result.path_x:
+            ax2.plot(result.path_x[0], result.path_y[0], 'o', color=self.colors['start'],
+                    markersize=10, markeredgewidth=2)
+            ax2.plot(result.path_x[-1], result.path_y[-1], 'o', color=self.colors['goal'],
+                    markersize=10, markeredgewidth=2)
+
+        plt.tight_layout()
+
+        # --- 3. 动画循环 ---
+        print(f"Starting animation loop (Total nodes: {total_nodes}, Batch size: {batch_size})...")
+
+        # 分批处理以提高性能
+        for i in range(0, total_nodes, batch_size):
+            # 获取当前批次的节点
+            batch = visited_items[i : i + batch_size]
+
+            # 更新网格数据
+            for (x_idx, y_idx, yaw_idx), cost in batch:
+                if 0 <= x_idx < map_env.width_idx and 0 <= y_idx < map_env.height_idx:
+                    # 投影逻辑：直接覆盖，展示搜索"触达"的过程
+                    dynamic_cost_map[x_idx, y_idx] = cost
+
+            # 核心：更新图像数据 (注意转置 .T)
+            img_right.set_data(dynamic_cost_map.T)
+            ax2.set_title(f"Search Process: {min(i + batch_size, total_nodes)} / {total_nodes} Nodes", fontsize=12)
+
+            # 刷新画布
+            # 暂停时间极短，只要能触发 GUI 刷新即可
+            plt.pause(0.001)
+
+        print("Search animation finished.")
+        plt.show()
+
     def _run_animation(self, ax, result: PlannerResult):
         """执行路径跟随动画的内部循环"""
         path_len = len(result.path_x)

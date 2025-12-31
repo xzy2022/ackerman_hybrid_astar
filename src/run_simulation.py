@@ -31,6 +31,8 @@ def main():
                         help='Record the closed set costs for heatmap analysis. Default: OFF to save memory')
     parser.add_argument('--sample-rate', type=int, default=10,
                         help='Sampling rate for debug data (default: 10, i.e., record 1 in 10 nodes). Lower = more detail but slower')
+    parser.add_argument('--animate-search', action='store_true',
+                        help='Animate the search process (dynamic expansion). Requires --log-closed')
 
     args = parser.parse_args()
 
@@ -154,17 +156,23 @@ def main():
                                       animate=True if result.success else False, # 失败时不播放动画
                                       title=title)
 
-        # === [新增]：成功时显示代价对比图（需要 --log-closed）===
+        # === [新增]：成功时显示代价分析（需要 --log-closed）===
         if result.success and args.log_closed and result.debug_data.visited_nodes_cost:
-            print("Generating Cost Comparison Heatmaps (Heuristic vs Actual)...")
-
             # 重新实例化启发式对象（因为之前的可能没有保存）
             from src.heuristic import HolonomicHeuristic
             h_vis = HolonomicHeuristic(h_config, grid_map)
             h_vis.calculate(start, goal) # 触发 Dijkstra 计算
 
-            # 调用新的对比可视化方法
-            viz.visualize_cost_comparison(grid_map, h_vis, result)
+            # 选择静态对比图或动态搜索动画
+            if args.animate_search:
+                print("Generating Search Process Animation...")
+                # 动态播放搜索过程（左图静态参考，右图动态扩展）
+                batch_size = 20  # 每帧绘制 20 个节点，可调整
+                viz.animate_search_process(grid_map, h_vis, result, batch_size=batch_size)
+            else:
+                print("Generating Cost Comparison Heatmaps (Heuristic vs Actual)...")
+                # 静态对比图（左图启发式，右图实际代价）
+                viz.visualize_cost_comparison(grid_map, h_vis, result)
 
         # === [改进点 3]：失败时强制显示热力图 ===
         # 这能让你直观看到为什么从起点走不通
