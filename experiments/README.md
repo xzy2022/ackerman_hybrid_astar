@@ -28,8 +28,8 @@ python experiments/run_batch_test.py
 
 实验完成后，查看 `experiments/results/` 目录：
 
-- **batch_test_log.csv** - 原始数据，可用 Excel/Python 分析
-- **summary_report.txt** - 自动生成的汇总报告
+- **batch_test_log_YYYYMMDD_HHMMSS.csv** - 原始数据
+- **summary_report_YYYYMMDD_HHMMSS.txt** - 汇总报告
 
 ### 3. 预期输出示例
 
@@ -84,9 +84,13 @@ h_config.move_step_grid = 2.0    # 步长倍率
 
 ```python
 import pandas as pd
+import glob
 
-# 读取实验数据
-df = pd.read_csv('experiments/results/batch_test_log.csv')
+# 读取最新的实验数据
+csv_files = glob.glob('experiments/results/batch_test_log_*.csv')
+latest_csv = max(csv_files)  # 获取最新的文件
+
+df = pd.read_csv(latest_csv)
 
 # 成功率
 success_rate = df['Success'].mean() * 100
@@ -104,28 +108,52 @@ print(f"违规率: {unsafe_rate:.2f}%")
 
 ### 使用 Excel 分析
 
-1. 打开 `experiments/results/batch_test_log.csv`
-2. 使用数据透视表或公式统计
-3. 绘制图表（成功率、时间分布等）
+1. 打开 `experiments/results/` 目录
+2. 找到最新的 `batch_test_log_YYYYMMDD_HHMMSS.csv`
+3. 双击打开，使用数据透视表或公式统计
+4. 绘制图表（成功率、时间分布等）
 
 ## 常见问题
 
 ### Q1: 实验中断了怎么办？
-A: 实验数据已实时保存到 CSV，可查看已完成的部分结果。从中断处继续，修改起始种子即可。
+A: 实验数据已实时保存到 CSV（文件名带时间戳，不会覆盖之前的实验）。可查看已完成的部分结果。从中断处继续，修改起始种子即可。
 
-### Q2: 如何调试单次实验？
-A: 使用 `src/run_simulation.py` 并指定相同的种子：
+### Q2: 如何找到最新的实验结果？
+A: 在 `experiments/results/` 目录中，文件按时间排序，最后的就是最新的。或者使用文件名中的时间戳来识别。
+
+### Q3: 旧的结果会被覆盖吗？
+A: **不会**。每个实验的结果文件都有唯一的时间戳，可以保存多次实验的结果用于对比。
+
+### Q4: 如何调试单次实验？
+A: 使用 `src/run_simulation.py` 并指定相同的种子来复现批量测试中的某次实验：
+
 ```bash
+# 复现种子为5的实验，并可视化
 python src/run_simulation.py --seed 5
+
+# 复现但不显示可视化窗口（快速测试）
+python src/run_simulation.py --seed 5 --no-visualization
+
+# 不指定种子（随机初始化）
+python src/run_simulation.py
 ```
 
-### Q3: 为什么有些实验失败？
+**支持的参数**：
+- `--seed N`：指定随机种子（N为整数，如1、5、42等）
+- `--no-visualization`：不显示可视化窗口（用于快速测试）
+
+这样可以：
+- 复现批量测试中特定某次实验的场景
+- 可视化观察该次实验的规划过程
+- 调试和分析异常情况
+
+### Q5: 为什么有些实验失败？
 A: 可能原因：
 - 障碍物密度过高，无可行路径
 - 起终点被障碍物包围（虽然已清理，但极端情况仍可能发生）
 - 算法参数过于保守
 
-### Q4: 如何测试不同场景？
+### Q6: 如何测试不同场景？
 A: 修改 `START_POSE` 和 `GOAL_POSE`，或调整 `obstacle_num` 参数。
 
 ## 扩展实验
@@ -167,4 +195,4 @@ for cfg in configs:
 ---
 
 **版本**: v1.0
-**最后更新**: 2025-01-01
+**最后更新**: 2025-12-31

@@ -234,11 +234,15 @@ def run_experiment():
     START_POSE = (10.0, 10.0, math.radians(0.0))
     GOAL_POSE = (40.0, 40.0, math.radians(90.0))
 
-    # 输出路径
+    # 输出路径（带时间戳）
     RESULTS_DIR = os.path.join(current_dir, 'results')
     ensure_dir(RESULTS_DIR)
-    CSV_FILE = os.path.join(RESULTS_DIR, 'batch_test_log.csv')
-    SUMMARY_FILE = os.path.join(RESULTS_DIR, 'summary_report.txt')
+
+    # 生成时间戳
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+    CSV_FILE = os.path.join(RESULTS_DIR, f'batch_test_log_{timestamp}.csv')
+    SUMMARY_FILE = os.path.join(RESULTS_DIR, f'summary_report_{timestamp}.txt')
 
     # 初始化配置（保持所有实验一致）
     h_config = HybridAStarConfig()
@@ -320,8 +324,8 @@ def run_experiment():
     print()
     print(f"Experiment completed!")
     print(f"Results saved to: {RESULTS_DIR}")
-    print(f"  - Raw data: {CSV_FILE}")
-    print(f"  - Summary:  {SUMMARY_FILE}")
+    print(f"  - Raw data: {os.path.basename(CSV_FILE)}")
+    print(f"  - Summary:  {os.path.basename(SUMMARY_FILE)}")
     print()
 
 
