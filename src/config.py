@@ -43,7 +43,7 @@ class VehicleConfig:
         # [修正点 1]：增加安全余量 (Safety Margin)
         # 1.0 (半宽) + 0.15 (覆盖角的对角线增量 + 少量安全缓冲)
         # 建议值为 1.1 到 1.2 之间
-        self.collision_radius = self.width / 2.0 + 0.20  # 1.15m（对宽度2.0m的车）
+        self.collision_radius = self.width / 2.0 + 0.38  # 1.15m（对宽度2.0m的车）
 
         # [修正点 2]：调整圆心分布
         # 增加圆的数量是好事，但要注意首尾圆的位置
