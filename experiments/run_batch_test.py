@@ -5,7 +5,7 @@
 自动化执行多次规划实验，记录统计数据并生成报告。
 
 作者：Auto-generated
-日期：2025-01-01
+日期：2025-12-31
 """
 
 import sys
@@ -32,6 +32,29 @@ def ensure_dir(directory):
     """确保目录存在，不存在则创建"""
     if not os.path.exists(directory):
         os.makedirs(directory)
+
+
+def calculate_path_length_meters(path_x, path_y):
+    """
+    计算路径的几何物理长度 (米)
+
+    Args:
+        path_x: 路径 x 坐标列表
+        path_y: 路径 y 坐标列表
+
+    Returns:
+        float: 路径总长度（米）
+    """
+    if len(path_x) < 2:
+        return 0.0
+
+    length = 0.0
+    for i in range(len(path_x) - 1):
+        dx = path_x[i+1] - path_x[i]
+        dy = path_y[i+1] - path_y[i]
+        length += math.hypot(dx, dy)
+
+    return length
 
 
 def run_single_experiment(exp_id, seed, start_pose, goal_pose, h_config, v_config):
@@ -78,14 +101,20 @@ def run_single_experiment(exp_id, seed, start_pose, goal_pose, h_config, v_confi
     # 初始化规划器
     planner = HybridAStarPlanner(h_config, v_config)
 
-    # 执行规划并记录时间
-    start_time = time.time()
+    # 执行规划并记录时间（使用 perf_counter 获得高精度计时）
+    start_time = time.perf_counter()
 
     try:
         result = planner.plan(start_pose, goal_pose, grid_map)
 
         # 计算执行时间（毫秒）
-        execution_time_ms = (time.time() - start_time) * 1000.0
+        end_time = time.perf_counter()
+        execution_time_ms = (end_time - start_time) * 1000.0
+
+        # 计算物理路径长度
+        path_length_m = 0.0
+        if result.success:
+            path_length_m = calculate_path_length_meters(result.path_x, result.path_y)
 
         # 严格碰撞检测 (Ground Truth Check)
         if result.success:
@@ -102,14 +131,16 @@ def run_single_experiment(exp_id, seed, start_pose, goal_pose, h_config, v_confi
             "success": result.success,
             "execution_time_ms": execution_time_ms,
             "nodes_expanded": result.debug_data.nodes_expanded,
-            "path_cost": result.cost if result.success else 0.0,
-            "collision_count": collision_count,
-            "path_length": len(result.path_x) if result.success else 0
+            "path_cost": result.cost if result.success else 0.0,  # 混合代价
+            "path_length_m": path_length_m,  # 物理长度（米）
+            "steps_count": len(result.path_x) if result.success else 0,  # 路径点数
+            "collision_count": collision_count
         }
 
     except Exception as e:
         # 捕获异常，防止某次崩溃中断整个测试
-        execution_time_ms = (time.time() - start_time) * 1000.0
+        end_time = time.perf_counter()
+        execution_time_ms = (end_time - start_time) * 1000.0
         print(f"[Exp {exp_id:03d}] ERROR: {str(e)}")
 
         return {
@@ -119,8 +150,9 @@ def run_single_experiment(exp_id, seed, start_pose, goal_pose, h_config, v_confi
             "execution_time_ms": execution_time_ms,
             "nodes_expanded": 0,
             "path_cost": 0.0,
-            "collision_count": -2,  # 异常标记
-            "path_length": 0
+            "path_length_m": 0.0,
+            "steps_count": 0,
+            "collision_count": -2  # 异常标记
         }
 
 
@@ -146,6 +178,8 @@ def generate_summary(data, filepath, config, total_runs, start_pose, goal_pose):
         min_time = min(d['execution_time_ms'] for d in success_cases)
         avg_nodes = sum(d['nodes_expanded'] for d in success_cases) / len(success_cases)
         avg_cost = sum(d['path_cost'] for d in success_cases) / len(success_cases)
+        avg_length_m = sum(d['path_length_m'] for d in success_cases) / len(success_cases)
+        avg_steps = sum(d['steps_count'] for d in success_cases) / len(success_cases)
 
         # 统计虽然规划成功但存在几何碰撞的案例（反映圆形近似模型的精度不足）
         unsafe_cases = [d for d in success_cases if d['collision_count'] > 0]
@@ -165,6 +199,8 @@ def generate_summary(data, filepath, config, total_runs, start_pose, goal_pose):
         min_time = 0
         avg_nodes = 0
         avg_cost = 0
+        avg_length_m = 0
+        avg_steps = 0
         unsafe_rate = 0
         safe_cases = []
         avg_collisions = 0
@@ -203,7 +239,10 @@ def generate_summary(data, filepath, config, total_runs, start_pose, goal_pose):
             f.write(f"    Min:     {min_time:.2f} ms\n")
             f.write(f"    Max:     {max_time:.2f} ms\n")
             f.write(f"  Nodes Expanded (Average): {avg_nodes:.1f}\n")
-            f.write(f"  Path Cost (Average): {avg_cost:.2f}\n\n")
+            f.write(f"  Path Cost (Mixed): {avg_cost:.2f}\n")
+            f.write(f"    (g + h + penalties)\n")
+            f.write(f"  Path Length (Physical): {avg_length_m:.2f} m\n")
+            f.write(f"  Path Steps (Average): {avg_steps:.1f}\n\n")
 
             f.write("Safety Analysis:\n")
             f.write(f"  Safe Plans: {len(safe_cases)} ({100-unsafe_rate:.1f}%)\n")
@@ -257,9 +296,10 @@ def run_experiment():
         "Success",
         "Planning_Time_ms",
         "Nodes_Expanded",
-        "Path_Cost",
-        "Strict_Collision_Count",
-        "Path_Length_Steps"
+        "Path_Cost",          # 混合代价（g + h + 惩罚）
+        "Path_Length_m",       # 物理长度（米）
+        "Steps_Count",         # 路径点数
+        "Strict_Collision_Count"
     ]
 
     print("=" * 70)
@@ -296,8 +336,9 @@ def run_experiment():
                 f"{result['execution_time_ms']:.2f}",
                 result['nodes_expanded'],
                 f"{result['path_cost']:.2f}",
-                result['collision_count'],
-                result['path_length']
+                f"{result['path_length_m']:.2f}",
+                result['steps_count'],
+                result['collision_count']
             ]
 
             # 实时写入 CSV（防止程序崩溃导致数据丢失）
