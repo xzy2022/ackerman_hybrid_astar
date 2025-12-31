@@ -62,7 +62,11 @@ class HybridAStarConfig:
     
     # --- 搜索步长 ---
     # 每次扩展的步长倍率 (step_length = xy_resolution * move_step_grid)
-    move_step_grid: float = 2.0  
+    move_step_grid: float = 2.0
+
+    # --- 运动学积分与碰撞检测 ---
+    step_interpolation: float = 0.1    # [m] 运动学积分的微元长度（越小轨迹越精确，但计算量越大）
+    collision_check_interval: float = 0.2  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）  
     
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
@@ -80,7 +84,7 @@ class HybridAStarConfig:
 
     # --- 派生属性 ---
     yaw_resolution: float = field(init=False) # [rad]
-    step_size: float = field(init=False)      # [m] 实际物理步长
+    step_size: float = field(init=False)      # [m] 实际物理步长。在运动学中被切分为多个微元（step_interpolation）来实现
     goal_yaw_threshold: float = field(init=False) # [rad] 终点航向角阈值(弧度)
 
     def __post_init__(self):

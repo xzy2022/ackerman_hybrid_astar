@@ -122,16 +122,27 @@ class HybridAStarPlanner(BasePlanner):
                 # D.1 碰撞检测 (Map Check)
                 # 取轨迹片段的每一点进行检测，确保整段轨迹安全
                 is_collision = False
-                # 简单采样检测：检测起点、终点和中点。更严谨的做法是 check_collision(trajectory)
-                # 这里为了性能，我们检测生成的一连串点
-                steps_to_check = 5 # 采样点数
-                step_gap = max(1, len(neighbor.x_list) // steps_to_check)
-                
-                for i in range(0, len(neighbor.x_list), step_gap):
+
+                # 基于物理距离的采样检测（防止穿墙效应）
+                check_interval = self.config.collision_check_interval  # [m] 检测间隔
+                total_points = len(neighbor.x_list)
+
+                # 计算每个点代表的物理距离
+                dist_per_point = self.config.step_size / total_points
+
+                # 计算需要跳过多少个点才能满足检测间隔
+                step_gap = max(1, int(round(check_interval / dist_per_point)))
+
+                for i in range(0, total_points, step_gap):
                     if map_env.check_collision(neighbor.x_list[i], neighbor.y_list[i], neighbor.yaw_list[i]):
                         is_collision = True
                         break
-                
+
+                # 确保终点一定被检测（可能因 step_gap 被跳过）
+                if not is_collision:
+                    if map_env.check_collision(neighbor.x_list[-1], neighbor.y_list[-1], neighbor.yaw_list[-1]):
+                        is_collision = True
+
                 if is_collision:
                     continue
                 
@@ -235,27 +246,20 @@ class HybridAStarPlanner(BasePlanner):
     def _simulate_motion(self, x, y, yaw, direction, steer):
         """
         [物理引擎] 自行车模型积分
+        使用固定积分分辨率保证轨迹精度的一致性
         """
         step_len = self.config.step_size # 配置中的扩展步长
-        velocity = 1.0 # 假设恒定速度
-        dt = 0.1 # 积分时间步长
-        
-        # 需要积分几步？
-        # Total distance = step_len
-        # num_steps = step_len / (velocity * dt)
-        # 为了简化，我们直接按照距离切分
-        
-        traj_x, traj_y, traj_yaw = [], [], []
-        curr_x, curr_y, curr_yaw = x, y, yaw
-        
-        dist_traveled = 0.0
-        
-        # 简单的欧拉积分
-        # 将 step_len 分成若干小段，保证曲线平滑度
-        sub_steps = 5 
+
+        # 基于固定分辨率计算积分步数（而非硬编码 sub_steps=5）
+        step_interp = self.config.step_interpolation  # [m] 每次积分的微元长度
+        sub_steps = math.ceil(step_len / step_interp)  # 向上取整确保覆盖全长
+
         d_sub = (step_len * direction) / sub_steps
         L = self.vehicle_config.wheelbase
-        
+
+        traj_x, traj_y, traj_yaw = [], [], []
+        curr_x, curr_y, curr_yaw = x, y, yaw
+
         for _ in range(sub_steps):
             # Bicycle Model
             curr_x += d_sub * math.cos(curr_yaw)
