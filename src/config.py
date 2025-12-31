@@ -39,7 +39,7 @@ class VehicleConfig:
 
         # 3. 计算碰撞检测圆参数 (3圆覆盖模型)
         # 半径 = 车宽一半 + 安全余量(0.1m)
-        self.collision_radius = self.width / 2.0 + 0.2
+        self.collision_radius = self.width / 2.0 + 0.25
         
         # 圆心位置：后轴(0)，轴距中点(L/2)，前轴(L)
         # 如果车辆更长，可以在此修改逻辑增加圆的数量
@@ -66,7 +66,7 @@ class HybridAStarConfig:
     
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
-    heuristic_weight: float = 5.0      # 启发式代价(H值)的权重
+    heuristic_weight: float = 1.05      # 启发式代价(H值)的权重
     penalty_reverse: float = 50.0       # 倒车惩罚
     penalty_steer_change: float = 5.0  # 频繁打方向盘的惩罚
     penalty_gear_switch: float = 5.0   # 换挡(前进变后退)的惩罚
