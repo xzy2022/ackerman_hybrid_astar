@@ -26,11 +26,11 @@ def main():
 
     # === [新增] 性能控制参数 ===
     parser.add_argument('--log-tree', action='store_true',
-                        help='Record and visualize the search tree (expansion history)')
+                        help='Record and visualize the search tree (green=Closed, blue=Open). Default: OFF for performance')
     parser.add_argument('--log-closed', action='store_true',
-                        help='Record the closed set costs (for analysis)')
+                        help='Record the closed set costs for heatmap analysis. Default: OFF to save memory')
     parser.add_argument('--sample-rate', type=int, default=10,
-                        help='Sampling rate for debug data (default: 10, i.e., record 1 in 10 nodes)')
+                        help='Sampling rate for debug data (default: 10, i.e., record 1 in 10 nodes). Lower = more detail but slower')
 
     args = parser.parse_args()
 
@@ -50,11 +50,10 @@ def main():
     h_config.heuristic_weight = 5.0
 
     # === [新增] 将命令行参数应用到配置 ===
-    # 注意：--log-tree 是开关参数，如果指定则为 True，否则保持配置默认值
-    if args.log_tree:
-        h_config.record_expansion_history = True
-    if args.log_closed:
-        h_config.record_visited_costs = True
+    # 明确设置：默认关闭记录，只有用户明确指定参数时才开启
+    # args.log_tree 默认是 False（action='store_true'），所以直接赋值即可
+    h_config.record_expansion_history = args.log_tree
+    h_config.record_visited_costs = args.log_closed
     h_config.debug_sample_rate = args.sample_rate
 
     # 打印当前的调试配置状态

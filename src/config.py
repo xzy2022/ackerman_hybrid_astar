@@ -88,14 +88,16 @@ class HybridAStarConfig:
 
     # --- [新增] 调试与可视化性能控制 ---
     # 是否记录扩展历史 (OpenList 中弹出的节点，用于绘制搜索树)
-    record_expansion_history: bool = True
+    # 默认关闭以提升性能，需要可视化时通过 --log-tree 开启
+    record_expansion_history: bool = False
 
     # 是否记录闭集代价 (ClosedList，用于绘制热力图或分析)
-    record_visited_costs: bool = True
+    # 默认关闭以节省内存，需要热力图时通过 --log-closed 开启
+    record_visited_costs: bool = False
 
     # 采样频率：每隔 N 个节点记录一次 (1 表示全部记录，10 表示记录 1/10)
     # 增大此值可显著提升大规模搜索时的规划速度和绘图速度
-    debug_sample_rate: int = 1
+    debug_sample_rate: int = 10
 
     # --- 终止条件阈值 ---
     goal_dist_threshold: float = 1.0       # [m] 终点距离阈值
