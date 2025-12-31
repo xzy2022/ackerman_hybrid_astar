@@ -18,11 +18,20 @@ from src.visualizer import Visualizer
 
 def main():
     # 解析命令行参数
-    parser = argparse.ArgumentParser(description='Hybrid A* Simulation with Random Seed Support')
+    parser = argparse.ArgumentParser(description='Hybrid A* Simulation with Performance Control')
     parser.add_argument('--seed', type=int, default=None,
                         help='Random seed for reproducibility (e.g., 5, 42, etc.)')
     parser.add_argument('--no-visualization', action='store_true',
                         help='Run without visualization (for testing)')
+
+    # === [新增] 性能控制参数 ===
+    parser.add_argument('--log-tree', action='store_true',
+                        help='Record and visualize the search tree (expansion history)')
+    parser.add_argument('--log-closed', action='store_true',
+                        help='Record the closed set costs (for analysis)')
+    parser.add_argument('--sample-rate', type=int, default=10,
+                        help='Sampling rate for debug data (default: 10, i.e., record 1 in 10 nodes)')
+
     args = parser.parse_args()
 
     print("=== Hybrid A* Research Simulation ===")
@@ -39,6 +48,17 @@ def main():
     h_config = HybridAStarConfig()
     h_config.move_step_grid = 2.0
     h_config.heuristic_weight = 5.0
+
+    # === [新增] 将命令行参数应用到配置 ===
+    h_config.record_expansion_history = args.log_tree
+    h_config.record_visited_costs = args.log_closed
+    h_config.debug_sample_rate = args.sample_rate
+
+    # 打印当前的调试配置状态
+    print(f"Debug Config: Tree={h_config.record_expansion_history}, "
+          f"Closed={h_config.record_visited_costs}, "
+          f"SampleRate={h_config.debug_sample_rate}")
+
     v_config = VehicleConfig()
 
     # 2. 初始化地图

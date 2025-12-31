@@ -103,16 +103,25 @@ class HybridAStarPlanner(BasePlanner):
             debug_data.nodes_expanded += 1
 
             # [Debug] 记录扩展历史 (取轨迹片段的最后一个点)
-            debug_data.expansion_history.append((current.x_list[-1], current.y_list[-1], current.yaw_list[-1]))
+            # === [修改点 1]：根据配置和采样率记录扩展历史 ===
+            if self.config.record_expansion_history:
+                # 只有当节点数符合采样频率时才记录
+                if debug_data.nodes_expanded % self.config.debug_sample_rate == 0:
+                    debug_data.expansion_history.append(
+                        (current.x_list[-1], current.y_list[-1], current.yaw_list[-1])
+                    )
 
             # C. 判断是否到达终点 (Goal Check)
             if self._is_goal_reached(current, goal):
                 print(f"Goal Reached! Cost: {current.f_cost:.2f}")
                 final_path = self._trace_path(current)
-                
+
                 # 填充统计数据
                 debug_data.execution_time_ms = (time.time() - start_time) * 1000
-                debug_data.visited_nodes_cost = {k: v.f_cost for k, v in closed_list.items()}
+
+                # === [修改点 2]：根据配置决定是否导出 ClosedList ===
+                if self.config.record_visited_costs:
+                    debug_data.visited_nodes_cost = {k: v.f_cost for k, v in closed_list.items()}
 
                 # 提取 Open List 中剩余候选节点用于可视化
                 # open_list 中的元素直接是 Node 对象（通过 heapq.heappush 添加）

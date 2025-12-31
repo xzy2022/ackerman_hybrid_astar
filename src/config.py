@@ -86,6 +86,17 @@ class HybridAStarConfig:
     # --- 其他 ---
     extend_area: float = 0.0     # [m] 碰撞检测额外延展距离
 
+    # --- [新增] 调试与可视化性能控制 ---
+    # 是否记录扩展历史 (OpenList 中弹出的节点，用于绘制搜索树)
+    record_expansion_history: bool = True
+
+    # 是否记录闭集代价 (ClosedList，用于绘制热力图或分析)
+    record_visited_costs: bool = True
+
+    # 采样频率：每隔 N 个节点记录一次 (1 表示全部记录，10 表示记录 1/10)
+    # 增大此值可显著提升大规模搜索时的规划速度和绘图速度
+    debug_sample_rate: int = 1
+
     # --- 终止条件阈值 ---
     goal_dist_threshold: float = 1.0       # [m] 终点距离阈值
     goal_yaw_threshold_deg: float = 10.0   # [deg] 终点航向角阈值
