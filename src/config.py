@@ -37,18 +37,16 @@ class VehicleConfig:
             [self.width / 2, -self.width / 2, -self.width / 2, self.width / 2, self.width / 2]
         ])
 
-        # 3. 计算碰撞检测圆参数 (3圆覆盖模型)
-        # 半径 = 车宽一半 + 安全余量(0.1m)
-        self.collision_radius = self.width / 2.0 + 0.25
-        
-        # 圆心位置：后轴(0)，轴距中点(L/2)，前轴(L)
-        # 如果车辆更长，可以在此修改逻辑增加圆的数量
-        # self.collision_offsets = [0.0, self.wheelbase / 2.0, self.wheelbase]
-        # self.collision_offsets = [-self.rear_hang / 2, 0.0, self.wheelbase / 2.0, self.wheelbase, 0.9 * self.front_hang] 
+        # 3. 计算碰撞检测圆参数（多圆覆盖模型优化）
+        # 优化策略：使用更多的小圆，而非少而大的圆
+        # 半径刚好等于半车宽（内切车身），减少无效覆盖面积
+        self.collision_radius = self.width / 2.0  # 1.0m（对宽度2.0m的车）
 
-        # 简单的均匀分布策略
-        num_circles = 5
-        self.collision_offsets = np.linspace(-self.rear_hang + 0.5, self.front_hang - 0.5, num_circles)
+        # 增加圆的数量以弥补缝隙，确保覆盖整个车身长度
+        # 圆心间距设为约 1.0-1.5 倍半径，保证无缝隙
+        num_circles = 7  # 增加数量以提高覆盖率
+        # 从车尾延伸到车头（留出小余量避免边缘检测问题）
+        self.collision_offsets = np.linspace(-self.rear_hang + 0.3, self.front_hang - 0.3, num_circles)
 
 @dataclass
 class HybridAStarConfig:
@@ -66,7 +64,7 @@ class HybridAStarConfig:
 
     # --- 运动学积分与碰撞检测 ---
     step_interpolation: float = 0.1    # [m] 运动学积分的微元长度（越小轨迹越精确，但计算量越大）
-    collision_check_interval: float = 0.2  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）  
+    collision_check_interval: float = 0.1  # [m] 碰撞检测间隔（应小于障碍物最小尺寸，防止穿墙）  
     
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析

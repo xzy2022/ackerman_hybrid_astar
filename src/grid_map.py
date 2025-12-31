@@ -75,51 +75,48 @@ class GridMap(BaseMap):
         """
         [实现 BaseMap 接口]
         检查车辆在特定位姿下是否与障碍物碰撞。
-        
+
         采用 "多圆覆盖模型" (Circle Approximation) 进行快速检测。
+        改进版：使用动态搜索半径，覆盖整个物理圆范围。
         """
         if self.obstacle_map is None:
             return True # 地图未初始化视为不可通行
-            
+
         # 遍历车身上的每一个碰撞检测圆 (由 VehicleConfig 定义)
         for offset in self.vehicle_config.collision_offsets:
             # 1. 计算圆心在世界坐标系的位置
-            #公式: cx = x + offset * cos(yaw)
             cx = x + offset * math.cos(yaw)
             cy = y + offset * math.sin(yaw)
-            
+
             # 2. 转换为栅格索引 (使用统一接口)
             cx_idx, cy_idx = self.get_index_from_pos(cx, cy)
-            
+
             # 3. 越界检查 (Out of bounds check)
             if (cx_idx < 0 or cx_idx >= self.width_idx or
                 cy_idx < 0 or cy_idx >= self.height_idx):
                 return True
-            
-            # 4. 栅格占用检查
-            # 简单的点检查：如果圆心所在的格子是障碍物，则碰撞
-            if self.obstacle_map[cx_idx][cy_idx]:
-                return True
-            
-            # 5. 邻域精确检查 (Circle Approximation refinement)
-            # 因为我们把圆心离散化到了 cx_idx，但这不代表圆只覆盖这一个格子。
-            # 如果圆半径很大，或者圆心刚好在格子边缘，可能碰撞到隔壁格子。
-            # 这里我们检查圆心所在的 3x3 邻域。
-            for i in range(-1, 2):
-                for j in range(-1, 2):
+
+            # 4. [核心改进] 动态计算搜索半径
+            # 确保搜索范围覆盖整个物理圆
+            search_radius_idx = math.ceil(self.vehicle_config.collision_radius / self.config.xy_resolution)
+
+            # 5. 遍历覆盖圆的所有潜在栅格
+            for i in range(-search_radius_idx, search_radius_idx + 1):
+                for j in range(-search_radius_idx, search_radius_idx + 1):
                     nx, ny = cx_idx + i, cy_idx + j
-                    
+
                     # 边界检查
                     if 0 <= nx < self.width_idx and 0 <= ny < self.height_idx:
                         if self.obstacle_map[nx][ny]:
-                            # 如果邻居是障碍物，计算【圆心】到【障碍物格子中心】的物理距离
-                            obs_x_center, obs_y_center = self.get_pos_from_index(nx, ny)
-                            
-                            dist = math.hypot(cx - obs_x_center, cy - obs_y_center)
-                            
-                            # 考虑到障碍物其实是方格，这里用圆半径判断是保守估计
-                            # 更严谨的做法是 Circle-AABB 碰撞，但在规划中这样通常够用了
-                            # 这里的判定逻辑是：如果障碍物中心在圆内，则碰撞 (近似)
+                            # 障碍物中心坐标
+                            obs_x, obs_y = self.get_pos_from_index(nx, ny)
+
+                            # 计算距离 (圆心到障碍物中心)
+                            dist = math.hypot(cx - obs_x, cy - obs_y)
+
+                            # 判定碰撞
+                            # 考虑到栅格是对角线覆盖，用 radius + resolution/2 稍微保守一点
+                            # 但这里用纯半径判断已经足够精确（因为我们遍历了所有覆盖的栅格）
                             if dist <= self.vehicle_config.collision_radius:
                                 return True
 
