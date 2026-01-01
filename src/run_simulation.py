@@ -34,6 +34,13 @@ def main():
     parser.add_argument('--animate-search', action='store_true',
                         help='Animate the search process (dynamic expansion). Requires --log-closed')
 
+    # === [新增] 地图生成参数 ===
+    parser.add_argument('--map-method', type=str, default='bulldozer',
+                        choices=['random', 'bulldozer'],
+                        help='Map generation method: "random" (classic random obstacles) or "bulldozer" (guaranteed feasible path)')
+    parser.add_argument('--obstacle-num', type=int, default=50,
+                        help='Number of random obstacles (for random method, or initial density for bulldozer)')
+
     args = parser.parse_args()
 
     print("=== Hybrid A* Research Simulation ===")
@@ -58,40 +65,57 @@ def main():
     h_config.record_visited_costs = args.log_closed
     h_config.debug_sample_rate = args.sample_rate
 
+    # === [新增] 设置地图生成方法 ===
+    h_config.map_generation_method = args.map_method
+
     # 打印当前的调试配置状态
     print(f"Debug Config: Tree={h_config.record_expansion_history}, "
           f"Closed={h_config.record_visited_costs}, "
           f"SampleRate={h_config.debug_sample_rate}")
+    print(f"Map Config: Method={args.map_method}, Obstacles={args.obstacle_num if args.obstacle_num else 'auto'}")
 
     v_config = VehicleConfig()
 
-    # 2. 初始化地图
-    grid_map = GridMap(h_config, v_config)
-    grid_map.generate_random_map(width_m=50.0, height_m=50.0, obstacle_num=150)
-
-    # 3. 设定任务
+    # 2. 设定任务（在生成地图之前定义，因为推土机方法需要这些信息）
     start = (10.0, 10.0, math.radians(0.0))
     goal = (40.0, 40.0, math.radians(90.0))
 
-    # 清理起终点周边（智能计算范围）
-    s_idx = grid_map.get_index_from_pos(start[0], start[1])
-    g_idx = grid_map.get_index_from_pos(goal[0], goal[1])
+    # 3. 初始化地图
+    grid_map = GridMap(h_config, v_config)
 
-    # [智能计算] 根据 VehicleConfig 动态计算清理半径
-    # 确保覆盖整个车身（前悬 3.3m，后悬 1.0m）+ 安全余量
-    safe_margin_m = max(v_config.front_hang, v_config.rear_hang) + 1.0
-    margin = int(math.ceil(safe_margin_m / h_config.xy_resolution))
+    # === [修改] 根据配置选择地图生成方法 ===
+    if args.map_method == 'bulldozer':
+        # 推土机方法：保证可行性的地图
+        grid_map.generate_guaranteed_map(
+            start=start,
+            goal=goal,
+            width_m=50.0,
+            height_m=50.0,
+            obstacle_num=args.obstacle_num
+        )
+    else:
+        # 传统方法：纯随机障碍物
+        obstacle_count = args.obstacle_num if args.obstacle_num else 150
+        grid_map.generate_random_map(width_m=50.0, height_m=50.0, obstacle_num=obstacle_count)
 
-    print(f"Clearing {margin*2+1}x{margin*2+1} grid around Start/Goal "
-          f"(safe_radius={safe_margin_m:.1f}m, margin={margin} grids)")
+        # 传统方法仍然需要清理起终点周边
+        s_idx = grid_map.get_index_from_pos(start[0], start[1])
+        g_idx = grid_map.get_index_from_pos(goal[0], goal[1])
 
-    # 清理起点和终点周边的障碍物
-    for dx in range(-margin, margin+1):
-        for dy in range(-margin, margin+1):
-            if 0 <= s_idx[0]+dx < grid_map.width_idx and 0 <= s_idx[1]+dy < grid_map.height_idx:
-                grid_map.obstacle_map[s_idx[0]+dx][s_idx[1]+dy] = False
-            if 0 <= g_idx[0]+dx < grid_map.width_idx and 0 <= g_idx[1]+dy < grid_map.height_idx:
-                grid_map.obstacle_map[g_idx[0]+dx][g_idx[1]+dy] = False
+        # [智能计算] 根据 VehicleConfig 动态计算清理半径
+        safe_margin_m = max(v_config.front_hang, v_config.rear_hang) + 1.0
+        margin = int(math.ceil(safe_margin_m / h_config.xy_resolution))
+
+        print(f"Clearing {margin*2+1}x{margin*2+1} grid around Start/Goal "
+              f"(safe_radius={safe_margin_m:.1f}m, margin={margin} grids)")
+
+        # 清理起点和终点周边的障碍物
+        for dx in range(-margin, margin+1):
+            for dy in range(-margin, margin+1):
+                if 0 <= s_idx[0]+dx < grid_map.width_idx and 0 <= s_idx[1]+dy < grid_map.height_idx:
+                    grid_map.obstacle_map[s_idx[0]+dx][s_idx[1]+dy] = False
+                if 0 <= g_idx[0]+dx < grid_map.width_idx and 0 <= g_idx[1]+dy < grid_map.height_idx:
+                    grid_map.obstacle_map[g_idx[0]+dx][g_idx[1]+dy] = False
 
     # 4. 核心规划
     planner = HybridAStarPlanner(h_config, v_config)

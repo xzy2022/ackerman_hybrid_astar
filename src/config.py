@@ -123,6 +123,12 @@ class HybridAStarConfig:
     goal_dist_threshold: float = 1.0       # [m] 终点距离阈值
     goal_yaw_threshold_deg: float = 10.0   # [deg] 终点航向角阈值
 
+    # --- [新增] 推土机地图生成参数 (Bulldozer Map Generation) ---
+    map_generation_method: str = "bulldozer"  # 地图生成方法: "random" 或 "bulldozer"
+    bulldozer_inflation: float = 1.2          # 推土机相对于真车的尺寸放大倍数 (安全裕度)
+    bulldozer_steer_noise_deg: float = 20.0   # [deg] 推土机随机游走的转向噪声强度
+    bulldozer_step_size: float = 1.0          # [m] 推土机每一步的模拟距离
+
     # --- 派生属性 ---
     yaw_resolution: float = field(init=False) # [rad]
     step_size: float = field(init=False)      # [m] 实际物理步长。在运动学中被切分为多个微元（step_interpolation）来实现

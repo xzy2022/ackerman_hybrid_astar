@@ -318,6 +318,88 @@ class GridMap(BaseMap):
         """
         return (0.0, self.width_m, 0.0, self.height_m)
 
+    # =========================================================
+    #  [新增] 推土机地图生成辅助方法
+    # =========================================================
+
+    def _simple_motion_step(self, x: float, y: float, yaw: float,
+                           steer: float, distance: float) -> Tuple[float, float, float]:
+        """
+        简易运动学模拟步骤（自行车模型）。
+
+        独立于 planner.py 实现，避免循环依赖。
+        用于推土机地图生成时的轨迹模拟。
+
+        Args:
+            x, y, yaw: 当前位姿
+            steer: 转向角 [rad]
+            distance: 移动距离 [m]
+
+        Returns:
+            (new_x, new_y, new_yaw): 更新后的位姿
+        """
+        wheelbase = self.vehicle_config.wheelbase
+
+        # 自行车模型积分
+        new_x = x + distance * math.cos(yaw)
+        new_y = y + distance * math.sin(yaw)
+        new_yaw = yaw + distance * math.tan(steer) / wheelbase
+
+        return new_x, new_y, new_yaw
+
+    def _clear_obstacles_for_pose(self, x: float, y: float, yaw: float, inflation: float = 1.0):
+        """
+        清除特定位姿下车辆轮廓覆盖的所有障碍物栅格。
+
+        用于推土机地图生成：在地图上"挖掘"出一条可行路径。
+
+        Args:
+            x, y, yaw: 车辆位姿
+            inflation: 尺寸放大系数（推土机比真车大 N 倍）
+        """
+        if self.obstacle_map is None:
+            return
+
+        res = self.config.xy_resolution
+
+        # 1. 获取车辆轮廓并放大
+        outline = self.vehicle_config.vehicle_outline.copy()
+        outline[0, :] *= inflation  # X 方向（车长）放大
+        outline[1, :] *= inflation  # Y 方向（车宽）放大
+
+        # 2. 旋转并平移到目标位姿
+        rot = np.array([
+            [math.cos(yaw), math.sin(yaw)],
+            [-math.sin(yaw), math.cos(yaw)]
+        ])
+        transformed_outline = (outline.T.dot(rot)).T
+        transformed_outline[0, :] += x
+        transformed_outline[1, :] += y
+
+        # 3. 构建 Shapely 多边形
+        vertices = []
+        for j in range(transformed_outline.shape[1] - 1):  # 去掉重复的起点
+            vertices.append((transformed_outline[0, j], transformed_outline[1, j]))
+        vehicle_poly = Polygon(vertices)
+
+        # 4. 计算包围盒并遍历相关栅格
+        min_x_idx = max(0, int(math.floor(np.min(transformed_outline[0, :]) / res)))
+        max_x_idx = min(self.width_idx - 1, int(math.ceil(np.max(transformed_outline[0, :]) / res)))
+        min_y_idx = max(0, int(math.floor(np.min(transformed_outline[1, :]) / res)))
+        max_y_idx = min(self.height_idx - 1, int(math.ceil(np.max(transformed_outline[1, :]) / res)))
+
+        # 5. 清除多边形覆盖的所有障碍物
+        half_res = res / 2.0
+        for ix in range(min_x_idx, max_x_idx + 1):
+            for iy in range(min_y_idx, max_y_idx + 1):
+                # 检查栅格中心是否在多边形内
+                center_x, center_y = self.get_pos_from_index(ix, iy)
+                grid_box = box(center_x - half_res, center_y - half_res,
+                              center_x + half_res, center_y + half_res)
+
+                if vehicle_poly.intersects(grid_box):
+                    self.obstacle_map[ix][iy] = False
+
     def generate_random_map(self, width_m: float, height_m: float, obstacle_num: int):
         """生成测试用的随机障碍物地图"""
         self.width_m = width_m
@@ -343,6 +425,95 @@ class GridMap(BaseMap):
             x = random.randint(1, self.width_idx - 2)
             y = random.randint(1, self.height_idx - 2)
             self.obstacle_map[x][y] = True
+
+    def generate_guaranteed_map(self, start: Tuple[float, float, float],
+                               goal: Tuple[float, float, float],
+                               width_m: float, height_m: float,
+                               obstacle_num: Optional[int] = None):
+        """
+        推土机地图生成（逆向可行性地图生成）。
+
+        核心思想：
+        1. 先生成大量随机障碍物（制造困难环境）
+        2. 模拟一个"虚拟推土机"从起点开到终点
+        3. 推土机沿途清除障碍物，留下一条保证可行的路径
+
+        Args:
+            start: 起点位姿 (x, y, yaw) [m, m, rad]
+            goal: 终点位姿 (x, y, yaw) [m, m, rad]
+            width_m, height_m: 地图物理尺寸 [m]
+            obstacle_num: 初始障碍物数量（None 则自动计算）
+        """
+        print(f"[GridMap] Generating guaranteed feasible map (Bulldozer Method)...")
+
+        # 1. 初始化底图（先生成大量随机障碍物）
+        if obstacle_num is None:
+            # 自动计算：每平方米 2-3 个障碍物
+            obstacle_num = int(width_m * height_m * 0.25)
+
+        self.generate_random_map(width_m, height_m, obstacle_num)
+
+        # 2. 准备推土机参数
+        curr_x, curr_y, curr_yaw = start
+        goal_x, goal_y, goal_yaw = goal
+
+        step_size = self.config.bulldozer_step_size
+        wheelbase = self.vehicle_config.wheelbase
+        max_steer = self.vehicle_config.max_steer
+        inflation = self.config.bulldozer_inflation
+        noise_deg = self.config.bulldozer_steer_noise_deg
+
+        # 3. 开始挖掘循环
+        max_iter = 2000  # 防止无限循环
+        iteration = 0
+        goal_threshold = 2.0  # [m] 距离终点 2m 时停止
+
+        print(f"  - Start: ({curr_x:.1f}, {curr_y:.1f}, {math.degrees(curr_yaw):.1f}°)")
+        print(f"  - Goal:  ({goal_x:.1f}, {goal_y:.1f}, {math.degrees(goal_yaw):.1f}°)")
+        print(f"  - Inflation: {inflation}x, Noise: {noise_deg}°, Step: {step_size}m")
+
+        while iteration < max_iter:
+            # 3.1 挖掉当前位置
+            self._clear_obstacles_for_pose(curr_x, curr_y, curr_yaw, inflation)
+
+            # 3.2 检查是否到达终点附近
+            dist_to_goal = math.hypot(goal_x - curr_x, goal_y - curr_y)
+            if dist_to_goal < goal_threshold:
+                print(f"  - Reached goal vicinity after {iteration} iterations (dist={dist_to_goal:.2f}m)")
+                break
+
+            # 3.3 计算指向终点的理想航向
+            target_yaw = math.atan2(goal_y - curr_y, goal_x - curr_x)
+
+            # 3.4 计算需要的转向角（简单的 P 控制器）
+            # 角度误差归一化到 [-π, π]
+            yaw_error = (target_yaw - curr_yaw + math.pi) % (2 * math.pi) - math.pi
+            base_steer = np.clip(yaw_error, -max_steer, max_steer)
+
+            # 3.5 加入随机噪声（制造蜿蜒路径，避免直线）
+            noise_rad = math.radians(noise_deg)
+            noise = np.random.uniform(-noise_rad, noise_rad)
+            final_steer = np.clip(base_steer + noise, -max_steer, max_steer)
+
+            # 3.6 运动学更新
+            curr_x, curr_y, curr_yaw = self._simple_motion_step(
+                curr_x, curr_y, curr_yaw, final_steer, step_size
+            )
+
+            # 3.7 边界保护（防止跑出地图）
+            curr_x = np.clip(curr_x, 0.0, width_m)
+            curr_y = np.clip(curr_y, 0.0, height_m)
+
+            iteration += 1
+
+        # 4. 确保终点也被清理
+        self._clear_obstacles_for_pose(goal_x, goal_y, goal_yaw, inflation)
+
+        # 5. 在终点附近进行多次转向清理（确保车辆可以从不同角度接近）
+        for yaw_offset in [-math.radians(15), 0, math.radians(15)]:
+            self._clear_obstacles_for_pose(goal_x, goal_y, goal_yaw + yaw_offset, inflation)
+
+        print(f"[GridMap] Guaranteed map generation complete. Cleared {iteration} poses.")
 
     def plot_map(self):
         """可视化地图 (Matplotlib)"""
