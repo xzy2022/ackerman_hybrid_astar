@@ -3,7 +3,7 @@ import numpy as np
 import math
 from typing import Tuple, List, Optional
 
-from src.config import VehicleConfig
+from src.config import VehicleConfig, RobotConfig
 from src.interfaces import PlannerResult
 from src.grid_map import GridMap
 from src.heuristic import HolonomicHeuristic
@@ -12,9 +12,13 @@ class Visualizer:
     """
     科研专用可视化器。
     负责将规划结果绘制成高质量的图表（用于论文插图或调试），并提供动画演示功能。
+
+    支持多种机器人模型：
+    - 阿克曼模型：绘制车辆轮廓、车轮、航向箭头
+    - 点模型：绘制简单圆点
     """
-    def __init__(self, vehicle_config: VehicleConfig):
-        self.vehicle_config = vehicle_config
+    def __init__(self, robot_config: RobotConfig):
+        self.robot_config = robot_config
         # 论文常用的配色方案
         self.colors = {
             'obstacle': '.k',
@@ -360,7 +364,7 @@ class Visualizer:
             list: 包含绘制的 Line2D, FancyArrow, Patch 对象的列表，用于后续清除动画帧。
         """
         artists = [] # 存储本帧所有绘图对象
-        outline = self.vehicle_config.vehicle_outline
+        outline = self.robot_config.vehicle_outline
         
         # 旋转矩阵 (2x2)
         rot = np.array([
@@ -379,7 +383,7 @@ class Visualizer:
         artists.append(line)
         
         # 2. 绘制车头箭头
-        arrow_len = self.vehicle_config.wheelbase * 0.5
+        arrow_len = self.robot_config.wheelbase * 0.5
         arrow = ax.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw),
                          head_width=0.3, fc=color, ec=color, alpha=alpha, zorder=10)
         artists.append(arrow)
@@ -387,15 +391,15 @@ class Visualizer:
         # 3. [新增] 绘制碰撞检测圆 (Visual Debugging)
         # 只有在配置文件中定义了相关属性才绘制
         if True:
-            if hasattr(self.vehicle_config, 'collision_offsets') and \
-            hasattr(self.vehicle_config, 'collision_radius'):
+            if hasattr(self.robot_config, 'collision_offsets') and \
+            hasattr(self.robot_config, 'collision_radius'):
                 
-                for offset in self.vehicle_config.collision_offsets:
+                for offset in self.robot_config.collision_offsets:
                     # 计算圆心的世界坐标
                     # 沿车身航向轴 (Heading) 前后偏移
                     cx = x + offset * math.cos(yaw)
                     cy = y + offset * math.sin(yaw)
-                    r = self.vehicle_config.collision_radius
+                    r = self.robot_config.collision_radius
                     
                     # 创建圆对象 (Cyan青色，虚线)
                     circle = plt.Circle((cx, cy), r, color='cyan', fill=False, 

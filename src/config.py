@@ -1,7 +1,8 @@
 import math
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from enum import Enum
 
 # --- 碰撞检测方法常量 ---
 class CollisionMethod:
@@ -10,28 +11,52 @@ class CollisionMethod:
     POLYGON = "polygon"     # 多边形几何 (速度慢，精度极高)
     FOOTPRINT = "footprint" # 栅格查表 (速度极快，精度中高，待实现)
 
+# --- 机器人模型类型枚举 ---
+class RobotModel(Enum):
+    """机器人/车辆运动学模型类型"""
+    ACKERMANN = "ackermann"   # 阿克曼转向模型（汽车类）
+    POINT = "point"           # 点模型（全向移动机器人）
+    DIFFERENTIAL = "differential"  # 差速驱动模型（暂未实现）
+
 @dataclass
-class VehicleConfig:
+class RobotConfig:
     """
-    车辆物理参数配置
+    机器人/车辆配置基类
+    包含所有模型共有的通用参数。
+    """
+    model_type: RobotModel = RobotModel.ACKERMANN  # 模型类型
+
+    # --- 通用几何参数 ---
+    radius: float = 1.0  # [m] 碰撞半径（点模型视为一个圆点，阿克曼模型用于简化碰撞检测）
+
+@dataclass
+class VehicleConfig(RobotConfig):
+    """
+    阿克曼车辆物理参数配置（继承自 RobotConfig）
     用于描述阿克曼转向车辆的几何尺寸和运动学限制。
+
+    注意：为了向后兼容，此类保留 VehicleConfig 名称，
+    但实际上它代表阿克曼模型的配置。
     """
     # --- 基础几何参数 ---
     wheelbase: float = 2.5       # [m] 轴距 (L/WB)
     width: float = 2.0           # [m] 车宽 (W)
     front_hang: float = 3.3      # [m] 前悬 (LF): 后轴中心到车头距离
     rear_hang: float = 1.0       # [m] 后悬 (LB): 后轴中心到车尾距离
-    
+
     # --- 运动学限制 ---
     max_steer_deg: float = 35.0  # [deg] 最大前轮转向角 (输入用角度，方便阅读)
-    
+
     # --- 派生属性 (由 __post_init__ 自动计算，不要手动赋值) ---
     max_steer: float = field(init=False)  # [rad]
     vehicle_outline: np.ndarray = field(init=False) # 用于绘图的轮廓点
-    collision_radius: float = field(init=False)     # [m] 碰撞检测圆半径
+    collision_radius: float = field(init=False)     # [m] 碰撞检测圆半径（覆盖基类的 radius）
     collision_offsets: List[float] = field(init=False) # [m] 碰撞检测圆圆心偏移量(相对于后轴)
 
     def __post_init__(self):
+        # 设置模型类型
+        self.model_type = RobotModel.ACKERMANN
+
         """在初始化后自动计算派生参数"""
         # 1. 角度转弧度
         self.max_steer = math.radians(self.max_steer_deg)
@@ -65,6 +90,24 @@ class VehicleConfig:
             num_circles
         )
 
+# 为了向后兼容，创建别名
+AckermannConfig = VehicleConfig
+
+@dataclass
+class PointConfig(RobotConfig):
+    """
+    点模型配置（继承自 RobotConfig）
+    用于全向移动机器人或简化路径规划。
+    """
+    # 点模型只需要 radius，其他参数从基类继承
+    # 可以覆盖默认值
+    radius: float = 0.5  # [m] 默认碰撞半径
+
+    def __post_init__(self):
+        # 设置模型类型
+        self.model_type = RobotModel.POINT
+        # 点模型不需要其他派生属性
+
 @dataclass
 class HybridAStarConfig:
     """
@@ -74,7 +117,7 @@ class HybridAStarConfig:
     # --- 分辨率参数 ---
     xy_resolution: float = 0.5   # [m] 栅格地图分辨率
     yaw_resolution_deg: float = 15.0 # [deg] 航向角离散化分辨率
-    
+
     # --- 搜索步长 ---
     # 每次扩展的步长倍率 (step_length = xy_resolution * move_step_grid)
     move_step_grid: float = 2.0
@@ -95,14 +138,14 @@ class HybridAStarConfig:
     # 用于补偿 "车辆实际中心" 与 "栅格中心" 的对齐误差 (最大误差 ≈ resolution * 0.7)
     # 建议设为 resolution * 0.5 左右
     footprint_padding: float = 0.5 * xy_resolution
-    
+
     # --- 代价权重 (Cost Weights) ---
     # 将原来的魔法数值提取为可配置项，方便做参数敏感性分析
     heuristic_weight: float = 1.05      # 启发式代价(H值)的权重
     penalty_reverse: float = 50.0       # 倒车惩罚
     penalty_steer_change: float = 5.0  # 频繁打方向盘的惩罚
     penalty_gear_switch: float = 5.0   # 换挡(前进变后退)的惩罚
-    
+
     # --- 其他 ---
     extend_area: float = 0.0     # [m] 碰撞检测额外延展距离
 

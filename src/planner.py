@@ -5,7 +5,7 @@ import numpy as np
 from typing import List, Tuple, Dict, Optional, Any
 
 # 导入配置与接口
-from src.config import HybridAStarConfig, VehicleConfig
+from src.config import HybridAStarConfig, VehicleConfig, RobotConfig
 from src.interfaces import BasePlanner, BaseMap, PlannerResult, SearchDebugData
 from src.heuristic import HolonomicHeuristic
 from src.grid_map import GridMap
@@ -231,7 +231,7 @@ class HybridAStarPlanner(BasePlanner):
         # 1. 采样动作空间 (Steering)
         # 动态生成：左转、直线、右转
         steer_inputs = [0.0]
-        max_steer = self.vehicle_config.max_steer
+        max_steer = self.robot_config.max_steer
         # 采样数量，例如左右各采样 2 个角度
         num_steer_sample = 2
         for i in range(num_steer_sample):
@@ -281,7 +281,7 @@ class HybridAStarPlanner(BasePlanner):
         sub_steps = math.ceil(step_len / step_interp)  # 向上取整确保覆盖全长
 
         d_sub = (step_len * direction) / sub_steps
-        L = self.vehicle_config.wheelbase
+        L = self.robot_config.wheelbase
 
         traj_x, traj_y, traj_yaw = [], [], []
         curr_x, curr_y, curr_yaw = x, y, yaw

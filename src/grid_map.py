@@ -9,7 +9,7 @@ from shapely.affinity import rotate
 
 # 导入接口与配置
 from src.interfaces import BaseMap
-from src.config import HybridAStarConfig, VehicleConfig, CollisionMethod
+from src.config import HybridAStarConfig, VehicleConfig, RobotConfig, CollisionMethod
 
 class GridMap(BaseMap):
     """
@@ -20,16 +20,16 @@ class GridMap(BaseMap):
     - 物理中心位于 (i+0.5)*res
     """
 
-    def __init__(self, config: HybridAStarConfig, vehicle_config: VehicleConfig):
+    def __init__(self, config: HybridAStarConfig, robot_config: RobotConfig):
         """
         初始化栅格地图。
 
         Args:
             config: 包含分辨率等地图参数
-            vehicle_config: 包含车辆尺寸，用于内部的碰撞检测计算
+            robot_config: 包含机器人尺寸，用于内部的碰撞检测计算
         """
         self.config = config
-        self.vehicle_config = vehicle_config
+        self.robot_config = robot_config
 
         # 地图尺寸 (索引单位)
         self.width_idx = 0
@@ -116,7 +116,7 @@ class GridMap(BaseMap):
         实际上只比较距离D和半径R，因为工程上D会考虑安全裕量，这样可以减少大量的碰撞检测计算。
         """
         # 遍历车身上的每一个碰撞检测圆 (由 VehicleConfig 定义)
-        for offset in self.vehicle_config.collision_offsets:
+        for offset in self.robot_config.collision_offsets:
             # 1. 计算圆心在世界坐标系的位置
             cx = x + offset * math.cos(yaw)
             cy = y + offset * math.sin(yaw)
@@ -131,7 +131,7 @@ class GridMap(BaseMap):
 
             # 4. [核心改进] 动态计算搜索半径
             # 确保搜索范围覆盖整个物理圆
-            search_radius_idx = math.ceil(self.vehicle_config.collision_radius / self.config.xy_resolution)
+            search_radius_idx = math.ceil(self.robot_config.collision_radius / self.config.xy_resolution)
 
             # 5. 遍历覆盖圆的所有潜在栅格
             for i in range(-search_radius_idx, search_radius_idx + 1):
@@ -150,7 +150,7 @@ class GridMap(BaseMap):
                             # 判定碰撞
                             # 考虑到栅格是对角线覆盖，用 radius + resolution/2 稍微保守一点
                             # 但这里用纯半径判断已经足够精确（因为我们遍历了所有覆盖的栅格）
-                            if dist <= self.vehicle_config.collision_radius:
+                            if dist <= self.robot_config.collision_radius:
                                 return True
 
         return False # 通过所有检查，无碰撞
@@ -162,7 +162,7 @@ class GridMap(BaseMap):
         缺点: 每次调用都要进行多边形相交运算，比圆检测慢 10-50 倍
         """
         # 1. 构建车辆 Shapely 多边形
-        outline = self.vehicle_config.vehicle_outline
+        outline = self.robot_config.vehicle_outline
         rot = np.array([
             [math.cos(yaw), math.sin(yaw)],
             [-math.sin(yaw), math.cos(yaw)]
@@ -214,7 +214,7 @@ class GridMap(BaseMap):
 
         # 1. 准备基础多边形 (以车辆后轴中心为原点 (0,0))
         # 使用 shapely 构建
-        outline = self.vehicle_config.vehicle_outline
+        outline = self.robot_config.vehicle_outline
         base_coords = list(zip(outline[0, :], outline[1, :]))
         # 去重
         if base_coords[0] == base_coords[-1]:
@@ -338,7 +338,7 @@ class GridMap(BaseMap):
         Returns:
             (new_x, new_y, new_yaw): 更新后的位姿
         """
-        wheelbase = self.vehicle_config.wheelbase
+        wheelbase = self.robot_config.wheelbase
 
         # 自行车模型积分
         new_x = x + distance * math.cos(yaw)
@@ -363,7 +363,7 @@ class GridMap(BaseMap):
         res = self.config.xy_resolution
 
         # 1. 获取车辆轮廓并放大
-        outline = self.vehicle_config.vehicle_outline.copy()
+        outline = self.robot_config.vehicle_outline.copy()
         outline[0, :] *= inflation  # X 方向（车长）放大
         outline[1, :] *= inflation  # Y 方向（车宽）放大
 
@@ -458,8 +458,8 @@ class GridMap(BaseMap):
         goal_x, goal_y, goal_yaw = goal
 
         step_size = self.config.bulldozer_step_size
-        wheelbase = self.vehicle_config.wheelbase
-        max_steer = self.vehicle_config.max_steer
+        wheelbase = self.robot_config.wheelbase
+        max_steer = self.robot_config.max_steer
         inflation = self.config.bulldozer_inflation
         noise_deg = self.config.bulldozer_steer_noise_deg
 
@@ -556,7 +556,7 @@ class GridMap(BaseMap):
             return []
 
         collided_obstacles = []
-        outline = self.vehicle_config.vehicle_outline
+        outline = self.robot_config.vehicle_outline
 
         # 遍历路径上的每一个位姿
         for i in range(len(path_x)):
