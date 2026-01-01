@@ -49,8 +49,10 @@ class GridMap(BaseMap):
         self.footprint_table: Dict[int, List[Tuple[int, int]]] = {}
         self.footprint_yaw_res = config.footprint_yaw_res_deg  # 记录分辨率
 
-        # 如果配置选择了 FOOTPRINT，则执行预计算
-        if self.config.collision_method == CollisionMethod.FOOTPRINT:
+        # 如果配置选择了 FOOTPRINT 且不是点模型，则执行预计算
+        # 点模型不需要 footprint table（直接查表）
+        if (self.config.collision_method == CollisionMethod.FOOTPRINT and
+            self.robot_config.model_type.value != "point"):
             self._init_collision_lookup_table()
 
     # =========================================================
@@ -86,11 +88,19 @@ class GridMap(BaseMap):
         """
         [实现 BaseMap 接口]
         检查车辆在特定位姿下是否与障碍物碰撞。
-        根据 config.collision_method 分发到具体实现。
+
+        根据 robot_config.model_type 分发到具体实现：
+        - POINT: 直接查表，忽略 yaw (O(1) 复杂度)
+        - ACKERMANN: 根据 config.collision_method 分发
         """
         if self.obstacle_map is None:
             return True # 地图未初始化视为不可通行
 
+        # [新增] 点模型快速通道
+        if self.robot_config.model_type.value == "point":
+            return self._check_collision_point(x, y)
+
+        # 阿克曼模型：根据 collision_method 分发
         method = self.config.collision_method
 
         if method == CollisionMethod.CIRCLE:
@@ -106,6 +116,47 @@ class GridMap(BaseMap):
     # =========================================================
     #  具体检测策略实现
     # =========================================================
+
+    def _check_collision_point(self, x: float, y: float) -> bool:
+        """
+        [点模型专用碰撞检测]
+        极速 O(1) 查表，忽略 yaw 参数。
+
+        逻辑：
+        1. 将点 (x, y) 视为一个半径为 robot_config.radius 的圆
+        2. 检查该圆覆盖的所有栅格是否为障碍物
+        3. 不考虑航向角，点模型全向移动
+
+        性能优化：
+        - 直接查表，无角度计算
+        - 仅检查圆覆盖的栅格范围
+        """
+        radius = self.robot_config.radius
+        x_idx, y_idx = self.get_index_from_pos(x, y)
+
+        # 计算需要检查的栅格半径
+        radius_idx = math.ceil(radius / self.config.xy_resolution)
+
+        # 遍历圆覆盖的所有栅格
+        for dx in range(-radius_idx, radius_idx + 1):
+            for dy in range(-radius_idx, radius_idx + 1):
+                # 检查是否在圆内
+                if dx*dx + dy*dy > radius_idx*radius_idx:
+                    continue
+
+                check_x = x_idx + dx
+                check_y = y_idx + dy
+
+                # 越界检查
+                if (check_x < 0 or check_x >= self.width_idx or
+                    check_y < 0 or check_y >= self.height_idx):
+                    return True
+
+                # 查表检查障碍物
+                if self.obstacle_map[check_x][check_y]:
+                    return True
+
+        return False
 
     def _check_collision_circle(self, x: float, y: float, yaw: float) -> bool:
         """

@@ -359,52 +359,75 @@ class Visualizer:
 
     def _plot_car_body(self, ax, x, y, yaw, color='black', alpha=1.0, label=None):
         """
-        内部辅助函数：绘制车辆轮廓和方向箭头，以及【调试用碰撞检测圆】。
+        内部辅助函数：根据 robot_config.model_type 绘制机器人。
+
+        - POINT: 绘制简单圆点
+        - ACKERMANN: 绘制车辆轮廓、方向箭头和碰撞检测圆
+
         Returns:
             list: 包含绘制的 Line2D, FancyArrow, Patch 对象的列表，用于后续清除动画帧。
         """
         artists = [] # 存储本帧所有绘图对象
-        outline = self.robot_config.vehicle_outline
-        
-        # 旋转矩阵 (2x2)
-        rot = np.array([
-            [math.cos(yaw), math.sin(yaw)],
-            [-math.sin(yaw), math.cos(yaw)]
-        ])
-        
-        # 变换: Outline(2xN) -> Transpose -> Dot -> Transpose -> Translate
-        rotated_outline = (outline.T.dot(rot)).T
-        rotated_outline[0, :] += x
-        rotated_outline[1, :] += y
-        
-        # 1. 绘制车身轮廓线
-        line, = ax.plot(rotated_outline[0, :], rotated_outline[1, :], 
-                        color=color, alpha=alpha, linewidth=1.5, label=label)
-        artists.append(line)
-        
-        # 2. 绘制车头箭头
-        arrow_len = self.robot_config.wheelbase * 0.5
-        arrow = ax.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw),
-                         head_width=0.3, fc=color, ec=color, alpha=alpha, zorder=10)
-        artists.append(arrow)
 
-        # 3. [新增] 绘制碰撞检测圆 (Visual Debugging)
-        # 只有在配置文件中定义了相关属性才绘制
-        if True:
-            if hasattr(self.robot_config, 'collision_offsets') and \
-            hasattr(self.robot_config, 'collision_radius'):
-                
-                for offset in self.robot_config.collision_offsets:
-                    # 计算圆心的世界坐标
-                    # 沿车身航向轴 (Heading) 前后偏移
-                    cx = x + offset * math.cos(yaw)
-                    cy = y + offset * math.sin(yaw)
-                    r = self.robot_config.collision_radius
-                    
-                    # 创建圆对象 (Cyan青色，虚线)
-                    circle = plt.Circle((cx, cy), r, color='cyan', fill=False, 
-                                    linestyle='--', linewidth=1, alpha=0.8, zorder=11)
-                    ax.add_patch(circle)
-                    artists.append(circle) # 加入列表以便动画清除
-        
+        # [新增] 根据模型类型分发
+        if self.robot_config.model_type.value == "point":
+            # === 点模型绘制 ===
+            radius = self.robot_config.radius
+
+            # 绘制圆点（实心）
+            circle = plt.Circle((x, y), radius, color=color, alpha=alpha, label=label)
+            ax.add_patch(circle)
+            artists.append(circle)
+
+            # 可选：绘制一个小箭头表示运动方向（即使点模型全向移动，也可视化实际方向）
+            arrow_len = radius * 0.8
+            arrow = ax.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw),
+                            head_width=radius*0.5, fc=color, ec=color, alpha=alpha*0.6, zorder=10)
+            artists.append(arrow)
+
+        else:
+            # === 阿克曼模型绘制（原有逻辑） ===
+            outline = self.robot_config.vehicle_outline
+
+            # 旋转矩阵 (2x2)
+            rot = np.array([
+                [math.cos(yaw), math.sin(yaw)],
+                [-math.sin(yaw), math.cos(yaw)]
+            ])
+
+            # 变换: Outline(2xN) -> Transpose -> Dot -> Transpose -> Translate
+            rotated_outline = (outline.T.dot(rot)).T
+            rotated_outline[0, :] += x
+            rotated_outline[1, :] += y
+
+            # 1. 绘制车身轮廓线
+            line, = ax.plot(rotated_outline[0, :], rotated_outline[1, :],
+                            color=color, alpha=alpha, linewidth=1.5, label=label)
+            artists.append(line)
+
+            # 2. 绘制车头箭头
+            arrow_len = self.robot_config.wheelbase * 0.5
+            arrow = ax.arrow(x, y, arrow_len * math.cos(yaw), arrow_len * math.sin(yaw),
+                            head_width=0.3, fc=color, ec=color, alpha=alpha, zorder=10)
+            artists.append(arrow)
+
+            # 3. [新增] 绘制碰撞检测圆 (Visual Debugging)
+            # 只有在配置文件中定义了相关属性才绘制
+            if True:
+                if hasattr(self.robot_config, 'collision_offsets') and \
+                hasattr(self.robot_config, 'collision_radius'):
+
+                    for offset in self.robot_config.collision_offsets:
+                        # 计算圆心的世界坐标
+                        # 沿车身航向轴 (Heading) 前后偏移
+                        cx = x + offset * math.cos(yaw)
+                        cy = y + offset * math.sin(yaw)
+                        r = self.robot_config.collision_radius
+
+                        # 创建圆对象 (Cyan青色，虚线)
+                        circle = plt.Circle((cx, cy), r, color='cyan', fill=False,
+                                        linestyle='--', linewidth=1, alpha=0.8, zorder=11)
+                        ax.add_patch(circle)
+                        artists.append(circle) # 加入列表以便动画清除
+
         return artists
